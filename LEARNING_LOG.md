@@ -23,3 +23,9 @@
 - Windows gotcha: async psycopg can't use `ProactorEventLoop` (Windows default; uvicorn uses it unless `--reload`). Fix: `--loop asyncio:SelectorEventLoop` + pytest-asyncio's `pytest_asyncio_loop_factories` hook. Read installed library code instead of guessing.
 - Config fails fast (`PostgresDsn`, required field); passwords in URLs must be URL-encoded; `POSTGRES_PASSWORD` only applies on first volume init.
 
+### 0.4 GitHub Actions CI
+- `uv sync --locked` fails if `uv.lock` disagrees with `pyproject.toml` → CI fails loudly on drift instead of silently resolving versions nobody else has (and that the Docker build won't have).
+- Service containers give CI a real Postgres (same image digest as local). They start *before* checkout, so init SQL isn't mounted → schema/extensions must come from migrations.
+- Local workarounds must not leak into CI: port 5433 was a laptop-only fix; on the runner it's 5432. Values written twice drift apart (password mismatch) — the health integration test caught it.
+- Secrets: ask "what can someone do with this outside this run?". Throwaway CI DB password is fine in plain text; API keys go in GitHub Actions Secrets (`${{ secrets.X }}`, masked in logs, not exposed to fork PRs). Pin actions by commit SHA — tags are mutable.
+

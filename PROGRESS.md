@@ -6,7 +6,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done (verified, quiz answered, 
 - [x] 0.1 Init git repo, folder structure, `.gitignore`, `.env.example`, `PROGRESS.md`, `LEARNING_LOG.md`
 - [x] 0.2 `docker-compose.yml` with Postgres (Timescale + pgvector); verify both extensions load
 - [x] 0.3 `api/` uv project, FastAPI hello world, `/health` endpoint checking DB, ruff + pytest configured
-- [ ] 0.4 GitHub Actions: lint + test on push
+- [x] 0.4 GitHub Actions: lint + test on push
 
 ## Phase 1 — Data & simulator
 - [ ] 1.1 SQLAlchemy models + first Alembic migration (incl. hypertable creation)
