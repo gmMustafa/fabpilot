@@ -1,0 +1,67 @@
+# FabPilot demo plant — single source of truth for seed (1.2), simulator (1.3), faults (1.4), evals (8).
+#
+# SYNTHETIC DATA. Ranges are typical values from generic datasheets / standards, not from any real
+# plant or vendor. "normal_min/normal_max" = the band a healthy machine stays in while RUNNING;
+# alarms and anomaly detection are derived from it.
+#
+# Sources / reasoning for ranges (marked "est." where it's an engineering estimate):
+#   - Vibration in mm/s RMS, velocity, per ISO 10816-3 zones for medium machines (15–300 kW):
+#     A/B (good/acceptable) boundary ~2.3–2.8, B/C (alert) ~4.5. Small machines (< 15 kW, class I)
+#     are stricter: B/C ~1.8–2.8.
+#   - Motor currents from P ≈ √3·U·I·cosφ at 400 V, cosφ ≈ 0.85 (est.).
+#   - Temperatures: rolling bearings typically run 40–70 °C; alarm ~80–90 °C (est.).
+
+# Sensors are defined once per machine TYPE: identical machines (M-01..M-03) carry identical sensors.
+sensor_templates:
+  cnc_mill: # 5-axis vertical machining center, ~22 kW spindle
+    - { name: spindle_bearing_temp, kind: temperature, unit: "°C", normal_min: 25, normal_max: 55 }
+    - { name: spindle_vibration, kind: vibration, unit: "mm/s", normal_min: 0.3, normal_max: 2.8 }
+    - { name: spindle_motor_current, kind: current, unit: "A", normal_min: 4, normal_max: 38 }
+    - { name: spindle_speed, kind: rpm, unit: "rpm", normal_min: 1000, normal_max: 12000 }
+    - { name: coolant_pressure, kind: pressure, unit: "bar", normal_min: 3, normal_max: 6 } # flood coolant
+
+  injection_molder: # 200 t hydraulic injection molding machine, ~37 kW pump motor
+    - { name: barrel_temp_zone2, kind: temperature, unit: "°C", normal_min: 200, normal_max: 240 } # PP/ABS
+    - { name: hydraulic_oil_temp, kind: temperature, unit: "°C", normal_min: 35, normal_max: 55 }
+    - { name: hydraulic_pressure, kind: pressure, unit: "bar", normal_min: 100, normal_max: 175 }
+    - { name: pump_motor_current, kind: current, unit: "A", normal_min: 25, normal_max: 65 }
+    - { name: screw_speed, kind: rpm, unit: "rpm", normal_min: 40, normal_max: 200 }
+
+  conveyor: # belt conveyor, 2.2 kW geared drive
+    - { name: drive_motor_current, kind: current, unit: "A", normal_min: 1.5, normal_max: 4.5 }
+    - { name: drive_motor_temp, kind: temperature, unit: "°C", normal_min: 30, normal_max: 70 }
+    - { name: drive_roller_speed, kind: rpm, unit: "rpm", normal_min: 85, normal_max: 115 }
+    - { name: gearbox_vibration, kind: vibration, unit: "mm/s", normal_min: 0.3, normal_max: 2.8 }
+
+  compressor: # oil-injected rotary screw air compressor, 55 kW, 7.5 bar
+    - { name: discharge_pressure, kind: pressure, unit: "bar", normal_min: 6.5, normal_max: 7.8 }
+    - { name: discharge_temp, kind: temperature, unit: "°C", normal_min: 75, normal_max: 95 } # trip ~110
+    - { name: motor_current, kind: current, unit: "A", normal_min: 55, normal_max: 100 }
+    - { name: motor_vibration, kind: vibration, unit: "mm/s", normal_min: 0.5, normal_max: 4.5 }
+    # Air-intake filter differential pressure: clean ~15–30 mbar, replace at ~60–70 (est.)
+    - { name: inlet_filter_dp, kind: pressure, unit: "mbar", normal_min: 10, normal_max: 50 }
+
+  pump: # centrifugal coolant supply pump, 7.5 kW (class I: stricter vibration limits)
+    - { name: discharge_pressure, kind: pressure, unit: "bar", normal_min: 2.5, normal_max: 4.0 }
+    - { name: bearing_temp, kind: temperature, unit: "°C", normal_min: 30, normal_max: 65 }
+    - { name: bearing_vibration, kind: vibration, unit: "mm/s", normal_min: 0.3, normal_max: 2.8 }
+    - { name: motor_current, kind: current, unit: "A", normal_min: 8, normal_max: 15 }
+    - { name: suction_strainer_dp, kind: pressure, unit: "bar", normal_min: 0.05, normal_max: 0.3 }
+
+machines:
+  # Line 1 — Machining
+  - { code: M-01, name: "Machining Center 1", line: "Line 1", type: cnc_mill, install_date: 2017-04-03 }
+  - { code: M-02, name: "Machining Center 2", line: "Line 1", type: cnc_mill, install_date: 2019-09-16 }
+  - { code: M-03, name: "Machining Center 3", line: "Line 1", type: cnc_mill, install_date: 2022-02-07 }
+  - { code: M-04, name: "Line 1 Outfeed Conveyor", line: "Line 1", type: conveyor, install_date: 2017-04-03 }
+
+  # Line 2 — Molding
+  - { code: M-05, name: "Injection Molder 1", line: "Line 2", type: injection_molder, install_date: 2016-11-21 }
+  - { code: M-06, name: "Injection Molder 2", line: "Line 2", type: injection_molder, install_date: 2020-06-01 }
+  - { code: M-07, name: "Line 2 Parts Conveyor", line: "Line 2", type: conveyor, install_date: 2016-11-21 }
+
+  # Line 3 — Utilities & assembly. The compressor feeds compressed air to the whole plant, so a
+  # compressor fault here can stop machines elsewhere — good material for "why did Line 3 stop?".
+  - { code: M-08, name: "Screw Compressor", line: "Line 3", type: compressor, install_date: 2015-08-10 }
+  - { code: M-09, name: "Central Coolant Pump", line: "Line 3", type: pump, install_date: 2018-01-15 }
+  - { code: M-10, name: "Assembly Conveyor", line: "Line 3", type: conveyor, install_date: 2021-03-29 }

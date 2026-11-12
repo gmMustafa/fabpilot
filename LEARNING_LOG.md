@@ -38,3 +38,9 @@
 - `default=` is Python/ORM-only; `server_default=` lives in the DB and covers every writer (simulator bulk inserts, psql, other services). Invariants that must always hold go in the DB (`CHECK approval_recorded`).
 - `alembic check` in CI catches "model changed, migration forgotten" (→ prod 500s on missing columns). Downgrades are for dev; in prod roll forward + expand/contract. Edit a migration only until it's pushed/applied elsewhere.
 - Debugging a hang: `localhost` → `::1` first on Windows, async psycopg never notices the refused attempt → use `127.0.0.1` and give every network call a timeout. Tools: pg_stat_activity, faulthandler, minimal repro.
+
+### 1.2 Seed script + plant.yaml
+- Idempotency via upsert (`INSERT ... ON CONFLICT (cols) DO UPDATE`); the conflict target must match a unique constraint exactly. Select-then-insert is a TOCTOU race (concurrent seeds crash on the unique key, or duplicate without one) and an N+1 round-trip problem.
+- One transaction for writes that only make sense together (atomicity): a failing statement aborts the whole transaction and `engine.begin()` rolls back everything — no half-applied state. Postgres never "skips the bad row".
+- Config owns description, the running plant owns state: re-seed must not touch `status`. Only thresholds are re-seedable; `kind`/`unit` give meaning to stored history, so changing them = a new sensor.
+- Validate config at the boundary (Pydantic `extra="forbid"`, ranges) before connecting. Read deprecation warnings: `Result.tuples()` is deprecated in SQLAlchemy 2.1 — check the installed version, not memory.

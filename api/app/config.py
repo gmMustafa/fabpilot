@@ -9,7 +9,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # api/app/config.py -> parents[2] is the repo root, where .env lives. Resolving from this file
 # (not the current working directory) means it works whether you run from api/ or the repo root.
 # In Docker/CI there is no .env file: pydantic-settings skips a missing file, reads real env vars.
-_REPO_ROOT_ENV = Path(__file__).resolve().parents[2] / ".env"
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_REPO_ROOT_ENV = _REPO_ROOT / ".env"
 
 
 class Settings(BaseSettings):
@@ -26,6 +27,8 @@ class Settings(BaseSettings):
     # Seconds to wait for a TCP connection to Postgres. Keeps /health fast when the DB is down.
     db_connect_timeout: int = 3
     log_level: str = "INFO"
+    # Plant layout shared by seed / simulator / evals. Overridable (e.g. a path inside a container).
+    plant_file: Path = _REPO_ROOT / "data" / "plant.yaml"
 
 
 @lru_cache

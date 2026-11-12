@@ -15,6 +15,7 @@ docker compose up -d            # Postgres 16 + TimescaleDB + pgvector on localh
 cd api
 uv sync
 uv run alembic upgrade head     # create schema: extensions, tables, sensor_readings hypertable
+uv run python -m app.seed       # 10 machines / 47 sensors from data/plant.yaml (idempotent)
 uv run pytest -v
 uv run uvicorn app.main:app --reload --loop asyncio:SelectorEventLoop
 curl http://127.0.0.1:8000/health
