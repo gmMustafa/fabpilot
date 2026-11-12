@@ -1,0 +1,76 @@
+name: api-ci
+
+on:
+  push:
+    branches: [main]
+    paths: ["api/**", ".github/workflows/api-ci.yml"]
+  pull_request:
+    paths: ["api/**", ".github/workflows/api-ci.yml"]
+  workflow_dispatch: # manual "Run workflow" button
+
+# Least privilege: the GITHUB_TOKEN can only read the repo, not push or create releases.
+permissions:
+  contents: read
+
+# A newer push to the same branch/PR cancels the run still in progress for the older one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: api
+
+# Actions are pinned by commit SHA (tags are mutable — same reasoning as the DB image digest).
+# The comment says which release the SHA is; bump both together.
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.11.6" # match local uv
+          working-directory: api
+      # --locked: fail if uv.lock is out of date with pyproject.toml (never silently re-resolve).
+      - run: uv sync --locked
+      - run: uv run ruff check --output-format=github .
+      - run: uv run ruff format --check .
+      - run: uv run mypy app tests
+
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      # Same image + digest as docker-compose.yml, so CI tests against what we run locally.
+      # Note: service containers start before checkout, so our init SQL is NOT mounted here.
+      # Anything the schema needs (like CREATE EXTENSION vector) must come from migrations (1.1).
+      db:
+        image: timescale/timescaledb-ha:pg16@sha256:633aa83c3aabab7ca16745bc2506199a4f8de2faa87006d13f60b82911b512c6
+        env:
+          POSTGRES_USER: fabpilot
+          POSTGRES_PASSWORD: ci-only-password # throwaway DB on a throwaway VM, not a secret
+          POSTGRES_DB: fabpilot
+        ports:
+          - 5432:5432
+        # Job steps wait until this passes, so tests never race a starting database.
+        options: >-
+          --health-cmd "pg_isready -U fabpilot -d fabpilot"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.11.6"
+          working-directory: api
+      - run: uv sync --locked
+
+      - name: pytest
+        env:
+          # Must match the `db` service above: port from `ports:`, password from POSTGRES_PASSWORD.
+          DATABASE_URL: postgresql+psycopg://fabpilot:ci-only-password@localhost:5432/fabpilot
+        # No -m filter: CI has a real Postgres (service container), so integration tests run too.
+        run: uv run pytest -v
