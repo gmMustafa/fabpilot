@@ -1,0 +1,46 @@
+# --- Secrets: real env files never get committed; only the template does ---
+.env
+.env.*
+!.env.example
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# --- Node / Next.js ---
+node_modules/
+.next/
+out/
+.pnpm-store/
+*.tsbuildinfo
+next-env.d.ts
+
+# --- Local ML / data artifacts (large, reproducible, not source) ---
+.cache/
+models/
+*.safetensors
+*.gguf
+
+# --- Eval run outputs (results tables we want to keep go in evals/results/*.md) ---
+evals/runs/
+
+# --- Docker volumes bound to the repo ---
+pgdata/
+
+# --- IDE / OS ---
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
