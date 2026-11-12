@@ -1,0 +1,33 @@
+# Local development stack. Values come from .env (compose reads it automatically for ${VAR} interpolation).
+name: fabpilot
+
+services:
+  db:
+    # Tag for readability, digest for reproducibility: the digest wins, so an upstream re-push of "pg16"
+    # can't silently change our database. Multi-arch index (linux/amd64 + linux/arm64), verified with
+    # `docker buildx imagetools inspect`. Bump deliberately: re-inspect, update digest, test.
+    image: timescale/timescaledb-ha:pg16@sha256:633aa83c3aabab7ca16745bc2506199a4f8de2faa87006d13f60b82911b512c6
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      # Bind to localhost only: the DB is reachable from this machine, not from the whole network.
+      # Host port defaults to 5433 to avoid clashing with a native Postgres on 5432.
+      # Inside the Docker network the DB is still on 5432.
+      - "127.0.0.1:${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      # This image keeps PGDATA at /home/postgres/pgdata/data (NOT /var/lib/postgresql/data).
+      - pgdata:/home/postgres/pgdata
+      # Runs only on first start with an empty volume. To re-run: docker compose down -v
+      - ./infra/docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  pgdata:
