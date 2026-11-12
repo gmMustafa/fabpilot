@@ -16,3 +16,10 @@
 - Tags are mutable, digests are immutable: pin third-party images by digest for reproducibility, and bump deliberately (Renovate/Dependabot) to still get security fixes. Own images: unique tags like the git SHA.
 - Port clash with a native Postgres on 5432 → host port 5433. Verify image internals instead of assuming: this image's PGDATA is `/home/postgres/pgdata/data`, not `/var/lib/postgresql/data`.
 
+### 0.3 FastAPI + /health + tooling
+- **503 vs 500**: 500 = "I have a bug"; 503 = "I'm fine but can't serve right now (dependency down), try later/elsewhere". Load balancers / k8s readiness probes stop routing to a 503 instance *without restarting it* — restarting the API wouldn't fix a dead DB.
+- **One engine per process** = one connection pool. An engine per request → no reuse + connection exhaustion (Postgres `max_connections`, one OS process per connection).
+- Catch the right exception: `DBAPIError` covers driver/connection failures but not code bugs (those should still 500). Pool exhaustion raises SQLAlchemy's `TimeoutError`, which is *not* a `DBAPIError`.
+- Windows gotcha: async psycopg can't use `ProactorEventLoop` (Windows default; uvicorn uses it unless `--reload`). Fix: `--loop asyncio:SelectorEventLoop` + pytest-asyncio's `pytest_asyncio_loop_factories` hook. Read installed library code instead of guessing.
+- Config fails fast (`PostgresDsn`, required field); passwords in URLs must be URL-encoded; `POSTGRES_PASSWORD` only applies on first volume init.
+
