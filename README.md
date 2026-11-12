@@ -14,6 +14,7 @@ cp .env.example .env            # then set POSTGRES_PASSWORD and the same passwo
 docker compose up -d            # Postgres 16 + TimescaleDB + pgvector on localhost:5433
 cd api
 uv sync
+uv run alembic upgrade head     # create schema: extensions, tables, sensor_readings hypertable
 uv run pytest -v
 uv run uvicorn app.main:app --reload --loop asyncio:SelectorEventLoop
 curl http://127.0.0.1:8000/health

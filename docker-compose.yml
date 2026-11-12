@@ -19,8 +19,8 @@ services:
     volumes:
       # This image keeps PGDATA at /home/postgres/pgdata/data (NOT /var/lib/postgresql/data).
       - pgdata:/home/postgres/pgdata
-      # Runs only on first start with an empty volume. To re-run: docker compose down -v
-      - ./infra/docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    # Schema (incl. CREATE EXTENSION) is managed by Alembic migrations, not init scripts:
+    #   cd api && uv run alembic upgrade head
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s

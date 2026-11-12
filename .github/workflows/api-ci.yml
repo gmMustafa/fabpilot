@@ -71,6 +71,6 @@ jobs:
       - name: pytest
         env:
           # Must match the `db` service above: port from `ports:`, password from POSTGRES_PASSWORD.
-          DATABASE_URL: postgresql+psycopg://fabpilot:ci-only-password@localhost:5432/fabpilot
+          DATABASE_URL: postgresql+psycopg://fabpilot:ci-only-password@127.0.0.1:5432/fabpilot
         # No -m filter: CI has a real Postgres (service container), so integration tests run too.
         run: uv run pytest -v

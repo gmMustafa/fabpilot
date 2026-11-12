@@ -29,3 +29,12 @@
 - Local workarounds must not leak into CI: port 5433 was a laptop-only fix; on the runner it's 5432. Values written twice drift apart (password mismatch) — the health integration test caught it.
 - Secrets: ask "what can someone do with this outside this run?". Throwaway CI DB password is fine in plain text; API keys go in GitHub Actions Secrets (`${{ secrets.X }}`, masked in logs, not exposed to fork PRs). Pin actions by commit SHA — tags are mutable.
 
+
+## Phase 1 — Data & simulator
+
+### 1.1 Models + Alembic migrations (quiz answers explained, not self-answered)
+- Hypertables: every PK/unique key must include the time column (uniqueness is only enforceable per chunk). Composite index order: equality column first, range column last → `(sensor_id, time)` = one contiguous range scan.
+- **Always review autogenerate**: it doesn't know TimescaleDB (hypertable is hand-written) and would have *dropped* Timescale's own `sensor_readings_time_idx` → `include_object` filter in env.py. Set the constraint naming convention before the first table (`column_0_N_name` for composites).
+- `default=` is Python/ORM-only; `server_default=` lives in the DB and covers every writer (simulator bulk inserts, psql, other services). Invariants that must always hold go in the DB (`CHECK approval_recorded`).
+- `alembic check` in CI catches "model changed, migration forgotten" (→ prod 500s on missing columns). Downgrades are for dev; in prod roll forward + expand/contract. Edit a migration only until it's pushed/applied elsewhere.
+- Debugging a hang: `localhost` → `::1` first on Windows, async psycopg never notices the refused attempt → use `127.0.0.1` and give every network call a timeout. Tools: pg_stat_activity, faulthandler, minimal repro.

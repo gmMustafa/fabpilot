@@ -1,0 +1,104 @@
+"""Alembic environment: how `alembic upgrade/downgrade/revision` connect to the database."""
+
+import asyncio
+from logging.config import fileConfig
+
+from alembic import context
+from sqlalchemy import pool
+from sqlalchemy.engine import Connection
+from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.schema import SchemaItem
+
+import app.db.models  # noqa: F401  # registers every model on Base.metadata (for autogenerate)
+from app.config import get_settings
+from app.db.base import Base
+
+config = context.config
+
+if config.config_file_name is not None:
+    fileConfig(config.config_file_name)
+
+# Autogenerate compares this metadata (our models) with the live database to draft migrations.
+target_metadata = Base.metadata
+
+
+def _database_url() -> str:
+    """URL from an explicit override (tests use this), else from app settings / DATABASE_URL."""
+    override = config.attributes.get("database_url")
+    return str(override) if override else str(get_settings().database_url)
+
+
+def include_object(
+    obj: SchemaItem,
+    name: str | None,
+    type_: str,
+    reflected: bool,
+    compare_to: SchemaItem | None,
+) -> bool:
+    """Tell autogenerate which DB objects are ours to manage.
+
+    TimescaleDB's create_hypertable() adds a "<table>_time_idx" index by itself. It exists in the
+    DB but not in our models, so without this filter autogenerate would emit drop_index() for it.
+    """
+    is_timescale_default_index = (
+        type_ == "index"
+        and reflected
+        and compare_to is None
+        and name is not None
+        and name.endswith("_time_idx")
+    )
+    return not is_timescale_default_index
+
+
+def run_migrations_offline() -> None:
+    """'Offline' mode: emit SQL to stdout instead of executing it (`alembic upgrade head --sql`).
+
+    Useful for DBA review of exactly what a migration will run in production.
+    """
+    context.configure(
+        url=_database_url(),
+        target_metadata=target_metadata,
+        include_object=include_object,
+        compare_server_default=True,
+        literal_binds=True,
+        dialect_opts={"paramstyle": "named"},
+    )
+    with context.begin_transaction():
+        context.run_migrations()
+
+
+def do_run_migrations(connection: Connection) -> None:
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        include_object=include_object,
+        # Also diff DB-side defaults, so a missing server_default shows up in `alembic check`.
+        compare_server_default=True,
+    )
+    with context.begin_transaction():
+        context.run_migrations()
+
+
+async def run_async_migrations() -> None:
+    # NullPool: a migration run is a one-shot CLI process, a connection pool would be pointless.
+    # connect_timeout: without it, an unreachable host can hang the CLI forever (seen on Windows
+    # with "localhost" -> ::1 while Docker only publishes on 127.0.0.1).
+    engine = create_async_engine(
+        _database_url(),
+        poolclass=pool.NullPool,
+        connect_args={"connect_timeout": get_settings().db_connect_timeout},
+    )
+    async with engine.connect() as connection:
+        await connection.run_sync(do_run_migrations)
+    await engine.dispose()
+
+
+def run_migrations_online() -> None:
+    # SelectorEventLoop: async psycopg can't use Windows' default ProactorEventLoop (see 0.3).
+    asyncio.run(run_async_migrations(), loop_factory=asyncio.SelectorEventLoop)
+
+
+if context.is_offline_mode():
+    run_migrations_offline()
+else:
+    run_migrations_online()
