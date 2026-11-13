@@ -5,11 +5,14 @@ requires-python = ">=3.12"
 dependencies = [
     "alembic>=1.20.1",
     "fastapi>=0.162.5",
+    "fastembed>=0.9.1",
     "openai>=3.50.0",
+    "pgvector>=0.5.1",
     "psycopg[binary]>=3.3.9",
     "pydantic-settings>=2.16.2",
     "pyyaml>=6.0.3",
     "sqlalchemy[asyncio]>=2.1.8",
+    "truststore>=0.10.5",
     "uvicorn[standard]>=0.54.0",
 ]
 # Dev tools, ruff and mypy config live in the workspace root pyproject.toml.
@@ -32,8 +35,9 @@ asyncio_default_fixture_loop_scope = "function"
 # Fail on typos like @pytest.mark.integraton instead of silently ignoring them.
 # -m "not llm": tests that call a REAL LLM never run by accident (free quota is ~50/day).
 # Run them explicitly with `uv run pytest -m llm` (a later -m on the command line wins).
-addopts = '--strict-markers -m "not llm"'
+addopts = '--strict-markers -m "not llm and not embedding"'
 markers = [
     "integration: needs real services (Postgres via docker compose); deselect with -m 'not integration'",
     "llm: calls the real LLM API (uses free quota); never in CI, run manually with -m llm",
+    "embedding: loads the real embedding model (~130 MB download on first run); run with -m embedding",
 ]

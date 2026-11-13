@@ -32,6 +32,11 @@ class Settings(BaseSettings):
     plant_file: Path = _REPO_ROOT / "data" / "plant.yaml"
     docs_dir: Path = _REPO_ROOT / "data" / "docs"  # knowledge base markdown (3.1)
 
+    # Embeddings (3.2b). The model runs locally (fastembed / ONNX): no API, no quota.
+    embedding_model: str = "BAAI/bge-small-en-v1.5"
+    embedding_cache_dir: Path = Path.home() / ".cache" / "fastembed"  # ~130 MB, outside the repo
+    chunk_max_tokens: int = 350  # measured with the model's tokenizer; the model's limit is 512
+
     # --- LLM gateway (OpenRouter). Optional: tests and CI run without a key (LLM is mocked).
     # SecretStr: never shows up in repr(), logs or error messages; read with .get_secret_value().
     openrouter_api_key: SecretStr | None = None

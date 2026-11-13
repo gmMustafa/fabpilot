@@ -24,7 +24,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done (verified, quiz answered, 
 
 ## Phase 3 — Knowledge base & RAG
 - [x] 3.1 Synthetic docs in `data/docs/` (manuals, SOPs, ~30 incident reports) — 5 manuals, 9 SOPs, 30 incidents (3.1c TODO written by Claude on request)
-- [~] 3.2 Ingestion: chunking, local embeddings, pgvector
+- [x] 3.2 Ingestion: chunking, local embeddings, pgvector — fastembed (ONNX) instead of sentence-transformers, see LEARNING_LOG
 - [ ] 3.3 Retrieval: vector + metadata filters, then hybrid with full-text search
 - [ ] 3.4 Retrieval eval: 20 questions, recall@5
 

@@ -13,9 +13,9 @@ from datetime import date
 import pytest
 
 from app.config import get_settings
-from app.db.models import FaultType
+from app.db.models import FaultType, SourceType
 from app.plant import PlantConfig, SensorSpec, load_plant
-from app.rag.corpus import Document, SourceType, load_corpus
+from app.rag.corpus import Document, load_corpus
 from simulator.alarms import Direction, rules_for
 from simulator.faults import APPLICABLE
 

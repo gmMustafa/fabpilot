@@ -15,21 +15,13 @@ not a document that silently never matches a filter.
 
 import re
 from datetime import date
-from enum import StrEnum
 from pathlib import Path
 from typing import Any, Self
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.db.models import FaultType, MachineType
-
-
-class SourceType(StrEnum):
-    MANUAL = "manual"
-    SOP = "sop"
-    INCIDENT_REPORT = "incident_report"
-
+from app.db.models import FaultType, MachineType, SourceType
 
 # doc_id format per source type: stable, human-readable, sortable. Citations quote these.
 _ID_PATTERN = {

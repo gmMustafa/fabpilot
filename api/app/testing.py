@@ -11,8 +11,10 @@ Needs the source tree (alembic.ini + migrations/ next to app/): fine for the wor
 install, which is the only place tests run.
 """
 
+import hashlib
+import math
 import uuid
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from pathlib import Path
 
 import psycopg
@@ -68,3 +70,32 @@ def migrated_db_url(alembic_cfg: Config, temp_db_name: str) -> str:
     """A throwaway DB with all migrations applied. Returns its async SQLAlchemy URL."""
     command.upgrade(alembic_cfg, "head")
     return sqlalchemy_url(temp_db_name)
+
+
+class FakeEmbedder:
+    """Deterministic stand-in for the real model (3.2b): no download, no ONNX, microseconds.
+
+    Each text gets a unit vector derived from its SHA-256, so identical texts -> identical vectors
+    and different texts -> (almost surely) different ones. It knows nothing about meaning: tests of
+    retrieval QUALITY need the real model (marker `embedding`); tests of plumbing don't.
+    """
+
+    def __init__(self, model_id: str = "fake-embedder-1", dim: int = 384) -> None:
+        self.model_id, self.dim = model_id, dim
+        self.passages_embedded = 0  # lets tests prove that skipped documents cost no embedding
+
+    def _vector(self, text: str) -> list[float]:
+        seed = hashlib.sha256(text.encode("utf-8")).digest()
+        raw = [((seed[i % len(seed)] + i) % 251) - 125.0 for i in range(self.dim)]
+        norm = math.sqrt(sum(x * x for x in raw))
+        return [x / norm for x in raw]
+
+    def embed_passages(self, texts: Sequence[str]) -> list[list[float]]:
+        self.passages_embedded += len(texts)
+        return [self._vector(t) for t in texts]
+
+    def embed_query(self, text: str) -> list[float]:
+        return self._vector(text)
+
+    def count_tokens(self, text: str) -> int:
+        return len(text.split())

@@ -7,8 +7,8 @@ import yaml
 from pydantic import ValidationError
 
 from app.config import get_settings
-from app.db.models import MachineType
-from app.rag.corpus import DocMeta, SourceType, load_corpus, split_frontmatter
+from app.db.models import MachineType, SourceType
+from app.rag.corpus import DocMeta, load_corpus, split_frontmatter
 
 # ------------------------------------------------------------------ split_frontmatter (your TODO)
 

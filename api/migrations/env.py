@@ -1,9 +1,12 @@
 """Alembic environment: how `alembic upgrade/downgrade/revision` connect to the database."""
 
 from logging.config import fileConfig
+from typing import cast
 
 from alembic import context
+from pgvector.sqlalchemy import VECTOR
 from sqlalchemy import pool
+from sqlalchemy.dialects.postgresql.base import PGDialect
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.schema import SchemaItem
@@ -85,6 +88,10 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection: Connection) -> None:
+    # Teach reflection the pgvector type: otherwise autogenerate / `alembic check` reads
+    # chunks.embedding back as an unknown NullType and reports a phantom type change every run.
+    # ischema_names is a PostgreSQL-dialect attribute, not on the generic Dialect type.
+    cast(PGDialect, connection.dialect).ischema_names["vector"] = VECTOR
     context.configure(
         connection=connection,
         target_metadata=target_metadata,

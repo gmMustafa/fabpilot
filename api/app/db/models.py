@@ -5,6 +5,7 @@ from datetime import date, datetime
 from enum import StrEnum
 from typing import Any
 
+from pgvector.sqlalchemy import VECTOR
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
@@ -21,7 +22,7 @@ from sqlalchemy import (
     Uuid,
     func,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -96,6 +97,14 @@ class FaultType(StrEnum):
     MOTOR_OVERLOAD = "motor_overload"
     SENSOR_DRIFT = "sensor_drift"
     BELT_SLIPPAGE = "belt_slippage"
+
+
+class SourceType(StrEnum):
+    """Knowledge-base document kinds (3.1). Lives here, not in rag.corpus: the DB needs it too."""
+
+    MANUAL = "manual"
+    SOP = "sop"
+    INCIDENT_REPORT = "incident_report"
 
 
 def str_enum(enum_cls: type[StrEnum], name: str) -> Enum:
@@ -338,3 +347,61 @@ class LlmCacheEntry(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     hits: Mapped[int] = mapped_column(Integer, server_default="0")
     last_hit_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+# Dimension of the embedding model (bge-small-en-v1.5: 384). Part of the schema: a model with a
+# different dimension needs a migration, and the embedder refuses to start on a mismatch.
+EMBEDDING_DIM = 384
+
+
+class KbDocument(Base):
+    """One knowledge-base document (3.2b). "Kb" prefix: rag.corpus.Document is the parsed file.
+
+    content_hash + embedding_model decide whether ingestion can skip it: the same text embedded by
+    the same model gives the same vectors. A different model means re-embedding EVERYTHING —
+    vectors from two models live in different spaces, and comparing them is meaningless.
+    """
+
+    __tablename__ = "documents"
+
+    doc_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    source_type: Mapped[SourceType] = mapped_column(str_enum(SourceType, "source_type"))
+    # Array, not one value: generic SOPs apply to all types. Filter: :type = ANY(machine_types).
+    machine_types: Mapped[list[str]] = mapped_column(ARRAY(String(32)))
+    title: Mapped[str] = mapped_column(String(200))
+    revision: Mapped[str] = mapped_column(String(8))
+    effective_date: Mapped[date] = mapped_column(Date)
+    # Incident fields (machine, fault, false_alarm, root_cause); {} for manuals and SOPs.
+    meta: Mapped[dict[str, Any]] = mapped_column(JSONB, server_default="{}")
+    content_hash: Mapped[str] = mapped_column(String(64))
+    embedding_model: Mapped[str] = mapped_column(String(200))
+    ingested_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    chunks: Mapped[list["KbChunk"]] = relationship(
+        back_populates="document", cascade="all, delete-orphan", passive_deletes=True
+    )
+
+
+class KbChunk(Base):
+    """One retrievable piece of a document: text + embedding (3.2). Citations: doc_id + section_ref.
+
+    No vector index yet: ~350 chunks are searched exactly in about a millisecond. An approximate
+    index (HNSW) trades recall for speed and only pays off from ~10^4-10^5 vectors.
+    """
+
+    __tablename__ = "chunks"
+    __table_args__ = (UniqueConstraint("doc_id", "ordinal"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    doc_id: Mapped[str] = mapped_column(ForeignKey("documents.doc_id", ondelete="CASCADE"))
+    ordinal: Mapped[int] = mapped_column(Integer)
+    section_ref: Mapped[str] = mapped_column(String(16))  # "§5.1", "" for the overview
+    section_title: Mapped[str] = mapped_column(String(200))
+    text: Mapped[str] = mapped_column(Text)  # exactly what was embedded (context header included)
+    token_count: Mapped[int] = mapped_column(Integer)
+    # pgvector 0.5 returns list[float] on read (older versions returned numpy arrays).
+    embedding: Mapped[list[float]] = mapped_column(VECTOR(EMBEDDING_DIM))
+
+    document: Mapped[KbDocument] = relationship(back_populates="chunks")
