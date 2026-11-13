@@ -1,6 +1,6 @@
 # FabPilot
 
-[![api-ci](https://github.com/gmMustafa/fabpilot/actions/workflows/api-ci.yml/badge.svg)](https://github.com/gmMustafa/fabpilot/actions/workflows/api-ci.yml)
+[![python-ci](https://github.com/gmMustafa/fabpilot/actions/workflows/python-ci.yml/badge.svg)](https://github.com/gmMustafa/fabpilot/actions/workflows/python-ci.yml)
 
 AI maintenance copilot for factories: sensor data + anomaly detection + RAG over manuals and past
 incidents → root cause with citations → draft work order → human approval.
@@ -11,9 +11,9 @@ incidents → root cause with citations → draft work order → human approval.
 
 ```bash
 cp .env.example .env            # then set POSTGRES_PASSWORD and the same password in DATABASE_URL
-docker compose up -d            # Postgres 16 + TimescaleDB + pgvector on localhost:5433
+docker compose up -d            # Postgres 16 + TimescaleDB + pgvector on 127.0.0.1:5433
+uv sync --all-packages          # from the repo root: one .venv for the whole uv workspace
 cd api
-uv sync
 uv run alembic upgrade head     # create schema: extensions, tables, sensor_readings hypertable
 uv run python -m app.seed       # 10 machines / 47 sensors from data/plant.yaml (idempotent)
 uv run pytest -v

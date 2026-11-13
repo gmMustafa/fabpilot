@@ -1,11 +1,28 @@
-name: api-ci
+name: python-ci
 
+# Lint + type-check + test every Python package in the uv workspace (api, simulator, ...).
 on:
   push:
     branches: [main]
-    paths: ["api/**", ".github/workflows/api-ci.yml"]
+    paths:
+      - "api/**"
+      - "simulator/**"
+      - "data/**" # plant.yaml is validated by tests
+      - "pyproject.toml" # workspace root: shared tool config + dev deps
+      - "uv.lock"
+      - ".python-version"
+      - ".github/workflows/python-ci.yml"
   pull_request:
-    paths: ["api/**", ".github/workflows/api-ci.yml"]
+    # Same list as above. (Kept literal rather than a YAML alias to avoid relying on
+    # anchor support in the Actions parser.)
+    paths:
+      - "api/**"
+      - "simulator/**"
+      - "data/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".python-version"
+      - ".github/workflows/python-ci.yml"
   workflow_dispatch: # manual "Run workflow" button
 
 # Least privilege: the GITHUB_TOKEN can only read the repo, not push or create releases.
@@ -16,10 +33,6 @@ permissions:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
-
-defaults:
-  run:
-    working-directory: api
 
 # Actions are pinned by commit SHA (tags are mutable — same reasoning as the DB image digest).
 # The comment says which release the SHA is; bump both together.
@@ -32,20 +45,19 @@ jobs:
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: "0.11.6" # match local uv
-          working-directory: api
-      # --locked: fail if uv.lock is out of date with pyproject.toml (never silently re-resolve).
-      - run: uv sync --locked
+      # --locked: fail if uv.lock is out of date (never silently re-resolve).
+      # --all-packages: install every workspace member, not just the (virtual) root.
+      - run: uv sync --locked --all-packages
       - run: uv run ruff check --output-format=github .
       - run: uv run ruff format --check .
-      - run: uv run mypy app tests
+      - run: uv run mypy api/app api/tests api/migrations simulator/src simulator/tests
 
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     services:
       # Same image + digest as docker-compose.yml, so CI tests against what we run locally.
-      # Note: service containers start before checkout, so our init SQL is NOT mounted here.
-      # Anything the schema needs (like CREATE EXTENSION vector) must come from migrations (1.1).
+      # Service containers start before checkout: schema comes from Alembic migrations (1.1).
       db:
         image: timescale/timescaledb-ha:pg16@sha256:633aa83c3aabab7ca16745bc2506199a4f8de2faa87006d13f60b82911b512c6
         env:
@@ -60,17 +72,21 @@ jobs:
           --health-interval 5s
           --health-timeout 3s
           --health-retries 20
+    env:
+      # Must match the `db` service above: port from `ports:`, password from POSTGRES_PASSWORD.
+      DATABASE_URL: postgresql+psycopg://fabpilot:ci-only-password@127.0.0.1:5432/fabpilot
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: "0.11.6"
-          working-directory: api
-      - run: uv sync --locked
+      - run: uv sync --locked --all-packages
 
-      - name: pytest
-        env:
-          # Must match the `db` service above: port from `ports:`, password from POSTGRES_PASSWORD.
-          DATABASE_URL: postgresql+psycopg://fabpilot:ci-only-password@127.0.0.1:5432/fabpilot
-        # No -m filter: CI has a real Postgres (service container), so integration tests run too.
+      # Each package runs its own suite (own pytest config + conftest). No -m filter: CI has a
+      # real Postgres, so integration tests run too.
+      - name: pytest (api)
+        working-directory: api
+        run: uv run pytest -v
+      - name: pytest (simulator)
+        working-directory: simulator
         run: uv run pytest -v

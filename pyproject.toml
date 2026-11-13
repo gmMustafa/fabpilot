@@ -1,0 +1,38 @@
+# uv workspace root. "Virtual" root: it is not a package itself, it only ties the members together.
+# One uv.lock + one .venv for all Python packages -> api, simulator (and later MCP servers, evals)
+# can never drift onto different versions of the same dependency.
+#
+#   uv sync --all-packages          # install every member + dev tools into ./.venv
+#   uv run --package fabpilot-simulator simulator --help
+
+[tool.uv.workspace]
+members = ["api", "simulator"]
+
+# Dev tools shared by all members (lint/type/test the whole repo with one toolchain).
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "mypy>=2.4.1",
+    "pytest>=9.2.0",
+    "pytest-asyncio>=1.4.1.post1",
+    "ruff>=0.17.4",
+    "types-pyyaml>=6.0.12.20261111",
+]
+
+# ---------------------------------------------------------------- ruff (lint + format), all members
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+# Where first-party code lives, so isort groups `app` / `simulator` imports correctly from the root.
+src = ["api", "simulator/src"]
+
+[tool.ruff.lint]
+# E/W pycodestyle, F pyflakes, I isort, B bugbear (likely bugs), UP pyupgrade (modern syntax),
+# ASYNC (blocking calls inside async code — important for us), SIM simplifications, RUF ruff-specific.
+select = ["E", "W", "F", "I", "B", "UP", "ASYNC", "SIM", "RUF"]
+
+# ---------------------------------------------------------------- mypy (types), all members
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]

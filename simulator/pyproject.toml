@@ -1,0 +1,33 @@
+[project]
+name = "fabpilot-simulator"
+version = "0.1.0"
+description = "Generates realistic sensor data for the FabPilot plant and injects faults."
+requires-python = ">=3.12"
+dependencies = [
+    # Reuses the plant config, models and settings from the API package (same workspace).
+    "fabpilot-api",
+]
+
+[project.scripts]
+simulator = "simulator.cli:main"
+
+[tool.uv.sources]
+fabpilot-api = { workspace = true }
+
+[build-system]
+requires = ["uv_build>=0.11.6,<0.12.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "simulator" # default would be "fabpilot_simulator" (derived from the project name)
+
+# ---------------------------------------------------------------- pytest (run from simulator/)
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# pytest-asyncio is installed in the shared workspace venv, so configure it like api/ does.
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = "--strict-markers"
+markers = [
+    "integration: needs real services (Postgres via docker compose); deselect with -m 'not integration'",
+]

@@ -11,34 +11,18 @@ dependencies = [
     "sqlalchemy[asyncio]>=2.1.8",
     "uvicorn[standard]>=0.54.0",
 ]
+# Dev tools, ruff and mypy config live in the workspace root pyproject.toml.
 
-[dependency-groups]
-dev = [
-    "httpx>=0.28.1",
-    "mypy>=2.4.1",
-    "pytest>=9.2.0",
-    "pytest-asyncio>=1.4.1.post1",
-    "ruff>=0.17.4",
-    "types-pyyaml>=6.0.12.20261111",
-]
+# A real package (not just an app folder) so other workspace members can `import app...`.
+[build-system]
+requires = ["uv_build>=0.11.6,<0.12.0"]
+build-backend = "uv_build"
 
-# ---------------------------------------------------------------- ruff (lint + format)
-[tool.ruff]
-line-length = 100
-target-version = "py312"
+[tool.uv.build-backend]
+module-name = "app"
+module-root = "" # flat layout: api/app/, not api/src/app/
 
-[tool.ruff.lint]
-# E/W pycodestyle, F pyflakes, I isort, B bugbear (likely bugs), UP pyupgrade (modern syntax),
-# ASYNC (blocking calls inside async code — important for us), SIM simplifications, RUF ruff-specific.
-select = ["E", "W", "F", "I", "B", "UP", "ASYNC", "SIM", "RUF"]
-
-# ---------------------------------------------------------------- mypy (types)
-[tool.mypy]
-python_version = "3.12"
-strict = true
-plugins = ["pydantic.mypy"]
-
-# ---------------------------------------------------------------- pytest
+# ---------------------------------------------------------------- pytest (run from api/)
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # auto: every `async def test_*` runs on an event loop without needing @pytest.mark.asyncio.
