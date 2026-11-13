@@ -5,9 +5,9 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from app.config import get_settings
+from app.db.deps import get_engine
 from app.db.session import create_engine
 from app.main import app
-from app.routers.health import get_engine
 
 
 async def _get_health(engine: AsyncEngine) -> tuple[int, dict[str, str]]:

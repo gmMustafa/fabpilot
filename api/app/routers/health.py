@@ -3,11 +3,13 @@
 import logging
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncEngine
+
+from app.db.deps import get_engine
 
 logger = logging.getLogger(__name__)
 
@@ -17,12 +19,6 @@ router = APIRouter(tags=["health"])
 class HealthResponse(BaseModel):
     status: Literal["ok", "degraded"]
     db: Literal["ok", "error"]
-
-
-def get_engine(request: Request) -> AsyncEngine:
-    """Dependency: the engine created in the app lifespan. Tests override this."""
-    engine: AsyncEngine = request.app.state.engine
-    return engine
 
 
 @router.get("/health", response_model=HealthResponse)

@@ -72,3 +72,10 @@
 - Real alarm logs repeat: a standing condition re-alarms after every restart (67× VIB-HIGH). ISA-18.2 handles it with shelving; the agent must read "many alarms, one sensor, rising" as ONE developing problem.
 - Quiz 1.4 (corrected): keep the answer key out of the agent's reach by ENFORCEMENT (separate schema + DB role without privileges), not convention — a generic `run_sql` tool or a prompt injection would otherwise leak it and make eval scores meaningless (data leakage). Least privilege / defense in depth.
 - Quiz 1.4 (corrected): never rank causes by alarm COUNT (it measures restarts/chatter). Use distinct conditions (sensor+code), order of first appearance, escalation/trend, and cross-sensor patterns → tools must summarize alarm logs into conditions + timelines before the LLM sees them.
+
+### 1.5 Read endpoints + time_bucket
+- Aggregate in the DB: `time_bucket(interval, time)` + avg/min/max/count per bucket. avg alone hides spikes (a 10 s spike to 90 °C moves an hourly avg by 0.14 °C) → always return min/max for anomaly data. `count` exposes partial buckets and gaps.
+- Protect the system: a fixed bucket ladder (enum → 422 before any SQL), auto-pick the smallest bucket that fits, hard cap of 500 points. Chunk exclusion: a time-range WHERE only touches the relevant hypertable chunks.
+- Half-open ranges `[start, end)` tile perfectly: no duplicate at the boundary, no gap from "23:59:59" tricks (microsecond timestamps). Same convention as Python ranges, time_bucket and the simulator windows.
+- Bind every value, even "safe" enum ones: correct typing (timedelta → interval), one query text → plan reuse / psycopg auto-prepare, grouped stats in pg_stat_statements, defense in depth. Raw SQL in text() isn't checked by mypy → integration tests catch typos like `FROM readings`.
+- A SQLAlchemy Row is a tuple: `row.count` is `tuple.count()`, `row.t` is a legacy shortcut → read by name via `result.mappings()` or unpack.
