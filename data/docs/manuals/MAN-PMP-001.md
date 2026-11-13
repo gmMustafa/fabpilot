@@ -64,7 +64,7 @@ compressor. Above 2.8 mm/s plan maintenance; above 4.5 mm/s stop the pump.
 
 | Pattern | Likely cause | Check | Action |
 |---|---|---|---|
-| `suction_strainer_dp` climbs steadily over one or two days, `discharge_pressure` slowly falls at the same time | **Clogged suction strainer** (swarf, scale, sludge after tank work) | dp trend; when was the basket last cleaned? | Clean the basket (SOP-PMP-006). Note what was in it: metal swarf points at the CNC coolant return filters |
+| `suction_strainer_dp` climbs steadily over one or two days, `discharge_pressure` slowly falls at the same time | **Clogged suction strainer** (scale, rust flakes, sludge after tank or pipe work) | dp trend; when was the basket last cleaned? Any recent work on the cooling circuit? | Clean the basket (SOP-PMP-006). Note what was in it: it tells you where the dirt comes from |
 | dp jumps within minutes | A large object (rag, glove) on the screen | Inspect the basket | Remove; find where it came from |
 | dp reads high while the pump is stopped | Transmitter zero drift or blocked impulse line | Compare the reading at standstill (should be ~0) | Verify the transmitter (SOP-GEN-004) |
 

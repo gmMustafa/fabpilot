@@ -26,7 +26,7 @@ effective_date: 2024-03-01
 machine: M-09
 fault: clogged_filter          # a simulator FaultType, or omit for a cause the simulator can't make
 false_alarm: false
-root_cause: "Suction strainer blocked with swarf after tank cleaning was skipped"
+root_cause: "Suction strainer blocked with welding beads and scale after pipe work on the circuit"
 ---
 ```
 

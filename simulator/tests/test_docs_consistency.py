@@ -87,6 +87,45 @@ def test_manuals_only_name_their_own_sensors(plant: PlantConfig, docs: list[Docu
         assert named <= own, f"{doc.meta.doc_id} names foreign sensors: {sorted(named - own)}"
 
 
+SOP_SECTIONS = ["Scope", "Safety", "Tools and parts", "Procedure", "Acceptance criteria", "Record"]
+
+
+def test_sops_have_the_required_sections(docs: list[Document]) -> None:
+    """Work orders (5.2) are built from these: parts, steps and acceptance criteria must exist."""
+    for doc in docs:
+        if doc.meta.source_type is SourceType.SOP:
+            titles = re.findall(r"^## \d+\. (.+)$", doc.body, re.MULTILINE)
+            assert titles == SOP_SECTIONS, doc.meta.doc_id
+
+
+# Any document ID written in a body: MAN-PMP-001, SOP-GEN-004, INC-2025-014.
+DOC_REF = re.compile(r"\b(?:MAN-[A-Z]{3}|SOP-[A-Z]{3}|INC-\d{4})-\d{3}\b")
+
+
+def test_all_doc_references_resolve(docs: list[Document]) -> None:
+    """A document may only cite documents that exist: an agent following a reference to a missing
+    SOP would cite (or invent) something nobody can check. Same idea as citation validity (8.3).
+    """
+    # Collect all existing document IDs
+    known = {doc.meta.doc_id for doc in docs}
+
+    # Collect all broken references
+    broken = {}
+
+    for doc in docs:
+        # Find all referenced document IDs
+        referenced = set(DOC_REF.findall(doc.body))
+
+        # Find references that do not exist
+        missing = referenced - known
+
+        if missing:
+            broken[doc.meta.doc_id] = sorted(missing)
+
+    # Report all broken references together
+    assert not broken, f"references to missing documents: {broken}"
+
+
 def test_incidents_match_the_plant(plant: PlantConfig, docs: list[Document]) -> None:
     machines = {m.code: m for m in plant.machines}
     for doc in docs:
