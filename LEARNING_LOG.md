@@ -56,3 +56,19 @@
 - Measure before optimizing: simulation (incl. the Python lag loop) took 0.8 s; 97 % of the time was 3M Python `write_row` calls. Left as is: one-off backfill, simpler code wins until it hurts.
 - psycopg defaults to autocommit=False: the first SELECT opens a transaction and every `conn.transaction()` becomes a SAVEPOINT → nothing commits until close. Hidden in backfill (CLI closes the conn), fatal in the never-ending live loop. Fix: `autocommit=True`. Tests missed it because they read through the writer's own connection → regression test reads from a SECOND connection and uses the real `connect()`; verified it fails with the bug.
 - Plan randomness in fixed blocks of absolute time so a 10 s live tick and a 7-day backfill see the same plant; windows are [start, end) so live resumes exactly at the backfill's end; `initial` carries lag state across the boundary.
+
+### 1.4a/b Faults + alarms
+- Physical faults change the process (target → through the lag: temperatures rise with tau); sensor drift changes only the measurement (after noise) → every other sensor stays bit-identical. That pattern — alarms from ONE sensor while physically linked sensors (load, pressure) stay normal — is how a human (and the agent) tells drift from a real fault. Real plants use redundant sensors + voting (2oo3) so one drifting sensor can't trip a machine.
+- A signature that passes for one seed may be luck → checked each fault across 30 seeds.
+- PLC alarms: debounce (N consecutive samples to RAISE) + hysteresis (a different, safer level to CLEAR) + state-aware (no low-pressure alarm while stopped/warming up). Without them: alarm floods (ISA-18.2). Debounce belongs to raising, hysteresis to clearing — resetting the counter at the clear level lets an oscillating sensor alarm. Low alarms = the same state machine on the negated series.
+- Healthy data must be silent (a week, 10 machines, 0 alarms — enforced by a test), or real alarms drown in noise.
+- Run commands from the directory their paths are relative to (mypy from the repo root); an unsaved editor buffer is not the file on disk.
+
+### 1.4c Ground truth, inject, migration 0004
+- Ground truth lives in a separate Postgres schema (`sim`) so the agent's DB role can be denied access with GRANTs — the answer key must be unreadable by the system being graded, enforced by the DB.
+- Roll-forward on a published schema: 0004 only adds. A nullable column without default is a metadata-only change in Postgres (instant, no table rewrite) — the safe first step of expand/contract.
+- `include_schemas=True` alone made autogenerate want to DROP TimescaleDB's catalog tables (`_timescaledb_catalog.hypertable`, ...) → allow-list of managed schemas via `include_name`. Allow-list > block-list: stays safe when an extension adds new internal schemas. Autogenerate also never emits `CREATE SCHEMA`.
+- Atomic inject (ground truth + readings + alarms + status in one transaction), proven by a test that fails the alarm write halfway and asserts nothing landed. Exclusive window ends cut off the "now" sample → a fault fully developed now never tripped until the current grid point was included.
+- Real alarm logs repeat: a standing condition re-alarms after every restart (67× VIB-HIGH). ISA-18.2 handles it with shelving; the agent must read "many alarms, one sensor, rising" as ONE developing problem.
+- Quiz 1.4 (corrected): keep the answer key out of the agent's reach by ENFORCEMENT (separate schema + DB role without privileges), not convention — a generic `run_sql` tool or a prompt injection would otherwise leak it and make eval scores meaningless (data leakage). Least privilege / defense in depth.
+- Quiz 1.4 (corrected): never rank causes by alarm COUNT (it measures restarts/chatter). Use distinct conditions (sensor+code), order of first appearance, escalation/trend, and cross-sensor patterns → tools must summarize alarm logs into conditions + timelines before the LLM sees them.

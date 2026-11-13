@@ -50,6 +50,17 @@ def include_object(
     return not is_timescale_default_index
 
 
+# ALLOW-list of schemas autogenerate may manage. Needed once a model lives outside `public`
+# (sim.fault_injections): include_schemas=True alone reflects TimescaleDB's internal schemas
+# (_timescaledb_catalog, ...) and autogenerate would emit DROP TABLE for its hypertable metadata.
+# An allow-list (not a block-list) stays safe when an extension adds a new internal schema.
+MANAGED_SCHEMAS = {None, "public", "sim"}  # None = the connection's default schema
+
+
+def include_name(name: str | None, type_: str, parent_names: object) -> bool:
+    return name in MANAGED_SCHEMAS if type_ == "schema" else True
+
+
 def run_migrations_offline() -> None:
     """'Offline' mode: emit SQL to stdout instead of executing it (`alembic upgrade head --sql`).
 
@@ -59,6 +70,8 @@ def run_migrations_offline() -> None:
         url=_database_url(),
         target_metadata=target_metadata,
         include_object=include_object,
+        include_schemas=True,
+        include_name=include_name,
         compare_server_default=True,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
@@ -74,6 +87,8 @@ def do_run_migrations(connection: Connection) -> None:
         include_object=include_object,
         # Also diff DB-side defaults, so a missing server_default shows up in `alembic check`.
         compare_server_default=True,
+        include_schemas=True,
+        include_name=include_name,  # ...but only the schemas we own
     )
     with context.begin_transaction():
         context.run_migrations()

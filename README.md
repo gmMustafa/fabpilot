@@ -18,6 +18,8 @@ uv run alembic upgrade head     # create schema: extensions, tables, sensor_read
 uv run python -m app.seed       # 10 machines / 47 sensors from data/plant.yaml (idempotent)
 uv run simulator backfill --days 7   # ~3M healthy readings (shifts, warm-up, load), ~35 s
 uv run simulator run            # optional: live readings every 10 s, Ctrl+C to stop
+uv run simulator inject --fault bearing_wear --machine M-01   # a known root cause + alarms
+uv run simulator clear --machine M-01                         # "repaired"
 uv run pytest -v
 uv run uvicorn app.main:app --reload --loop asyncio:SelectorEventLoop
 curl http://127.0.0.1:8000/health

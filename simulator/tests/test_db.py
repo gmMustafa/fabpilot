@@ -10,11 +10,13 @@ from pydantic import PostgresDsn
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.config import get_settings
+from app.db.models import FaultType
 from app.plant import PlantConfig, load_plant
 from app.seed import seed
 from app.testing import libpq_url, sqlalchemy_url
+from simulator import runner
 from simulator.db import connect
-from simulator.runner import backfill, live_tick, resume_state
+from simulator.runner import backfill, clear, inject, live_tick, resume_state
 from simulator.signals import DT_SECONDS, utc
 
 pytestmark = pytest.mark.integration
@@ -133,3 +135,119 @@ def test_status_update_never_overrides_down(conn: psycopg.Connection, plant: Pla
     rows: dict[str, str] = dict(conn.execute("SELECT code, status FROM machines").fetchall())
     assert rows["M-01"] == "down"  # set by a fault / a human: the schedule must not 'repair' it
     assert rows["M-08"] == "running"  # compressor runs 24/7
+
+
+# ------------------------------------------------------------------ faults (1.4c)
+
+
+def _count(conn: psycopg.Connection, sql: str) -> int:
+    return int(_scalar(conn, sql))
+
+
+def _m02_checksum(conn: psycopg.Connection) -> float:
+    return _scalar(
+        conn,
+        "SELECT sum(r.value) FROM sensor_readings r JOIN sensors s ON s.id = r.sensor_id"
+        " JOIN machines m ON m.id = s.machine_id WHERE m.code = 'M-02'",
+    )
+
+
+def test_inject_records_ground_truth_rewrites_one_machine_and_raises_alarms(
+    conn: psycopg.Connection, plant: PlantConfig
+) -> None:
+    backfill(conn, plant, days=1, seed=SEED, now=NOW)
+    other_before = _m02_checksum(conn)
+
+    result = inject(
+        conn,
+        plant,
+        FaultType.BEARING_WEAR,
+        "M-01",
+        seed=SEED,
+        duration=timedelta(hours=30),
+        now=NOW,
+    )
+
+    truth = conn.execute(
+        "SELECT f.fault_type, m.code, f.cleared_at FROM sim.fault_injections f"
+        " JOIN machines m ON m.id = f.machine_id"
+    ).fetchall()
+    assert truth == [("bearing_wear", "M-01", None)]
+    codes = {
+        r[0]
+        for r in conn.execute(
+            "SELECT a.code FROM alarms a JOIN machines m ON m.id = a.machine_id"
+            " WHERE m.code = 'M-01'"
+        ).fetchall()
+    }
+    assert "VIB-HIGH" in codes
+    assert result.alarms == _count(conn, "SELECT count(*) FROM alarms")
+    assert _m02_checksum(conn) == pytest.approx(other_before)  # other machines untouched
+
+
+def test_coolant_failure_trips_the_machine(conn: psycopg.Connection, plant: PlantConfig) -> None:
+    backfill(conn, plant, days=1, seed=SEED, now=NOW)
+    result = inject(conn, plant, FaultType.COOLANT_PUMP_FAILURE, "M-01", seed=SEED, now=NOW)
+    assert result.tripped
+    status = conn.execute("SELECT status FROM machines WHERE code = 'M-01'").fetchone()
+    assert status == ("down",)
+    assert _count(conn, "SELECT count(*) FROM alarms WHERE code = 'TRIP'") == 1
+
+
+def test_inject_is_atomic(
+    conn: psycopg.Connection, plant: PlantConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failure halfway (here: writing alarms) must leave NO ground truth and NO new readings."""
+    backfill(conn, plant, days=1, seed=SEED, now=NOW)
+    readings_before = _scalar(conn, "SELECT sum(value) FROM sensor_readings")
+
+    def boom(*args: object, **kwargs: object) -> int:
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(runner, "write_alarms", boom)
+    with pytest.raises(RuntimeError, match="disk full"):
+        inject(conn, plant, FaultType.BEARING_WEAR, "M-01", seed=SEED, now=NOW)
+
+    assert _count(conn, "SELECT count(*) FROM sim.fault_injections") == 0
+    assert _scalar(conn, "SELECT sum(value) FROM sensor_readings") == pytest.approx(readings_before)
+
+
+def test_invalid_fault_writes_nothing(conn: psycopg.Connection, plant: PlantConfig) -> None:
+    with pytest.raises(ValueError, match="can't happen"):
+        inject(conn, plant, FaultType.COOLANT_PUMP_FAILURE, "M-04", seed=SEED, now=NOW)
+    assert _count(conn, "SELECT count(*) FROM sim.fault_injections") == 0
+
+
+def test_live_mode_keeps_applying_an_active_fault(
+    conn: psycopg.Connection, plant: PlantConfig
+) -> None:
+    backfill(conn, plant, days=1, seed=SEED, now=NOW)
+    inject(
+        conn,
+        plant,
+        FaultType.SENSOR_DRIFT,
+        "M-08",
+        seed=SEED,
+        sensor="discharge_temp",
+        duration=timedelta(hours=6),
+        now=NOW,
+    )
+    state = resume_state(conn, NOW)
+    live_tick(conn, plant, state, NOW + timedelta(seconds=30), SEED)
+    latest = _scalar(
+        conn,
+        "SELECT r.value FROM sensor_readings r JOIN sensors s ON s.id = r.sensor_id"
+        " JOIN machines m ON m.id = s.machine_id"
+        " WHERE m.code = 'M-08' AND s.name = 'discharge_temp' ORDER BY r.time DESC LIMIT 1",
+    )
+    assert latest > 95.0  # still drifted above its 75-95 °C band: the fault didn't vanish
+
+
+def test_clear_repairs_the_machine(conn: psycopg.Connection, plant: PlantConfig) -> None:
+    backfill(conn, plant, days=1, seed=SEED, now=NOW)
+    inject(conn, plant, FaultType.COOLANT_PUMP_FAILURE, "M-01", seed=SEED, now=NOW)
+    assert clear(conn, "M-01", now=NOW) == 1
+    assert conn.execute("SELECT status FROM machines WHERE code = 'M-01'").fetchone() == (
+        "running",
+    )
+    assert _count(conn, "SELECT count(*) FROM sim.fault_injections WHERE cleared_at IS NULL") == 0

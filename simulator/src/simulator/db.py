@@ -11,7 +11,9 @@ import psycopg
 from sqlalchemy.engine import make_url
 
 from app.config import Settings
-from app.db.models import MachineStatus
+from app.db.models import FaultType, MachineStatus
+from simulator.alarms import AlarmEvent
+from simulator.faults import Fault
 
 
 def connect(settings: Settings) -> psycopg.Connection:
@@ -102,11 +104,114 @@ def last_readings(conn: psycopg.Connection) -> dict[int, tuple[datetime, float]]
 
 
 def update_status(conn: psycopg.Connection, statuses: dict[str, MachineStatus]) -> None:
-    """Set running/idle from the simulation, but never overwrite DOWN or MAINTENANCE: those are
-    set by faults (1.4) or humans, and a schedule must not 'repair' a broken machine."""
+    """Apply simulated status, with one rule: a schedule never 'repairs' a machine.
+
+    - running/idle: only overwrites running/idle (never DOWN or MAINTENANCE: set by a fault trip
+      or a human).
+    - DOWN (a fault tripped it): may overwrite running/idle, not MAINTENANCE.
+    """
     with conn.transaction():
         for code, status in statuses.items():
             conn.execute(
                 "UPDATE machines SET status = %s WHERE code = %s AND status IN ('running', 'idle')",
                 (status.value, code),
             )
+
+
+# ------------------------------------------------------------------ alarms
+
+
+def write_alarms(
+    conn: psycopg.Connection,
+    events: Iterable[AlarmEvent],
+    machine_codes: Iterable[str],
+    start: datetime,
+    end: datetime,
+) -> int:
+    """Replace these machines' alarms raised in [start, end) with `events` (idempotent re-runs).
+
+    Alarms are low volume (D4 in 1.1): plain executemany is fine, no COPY needed.
+    """
+    machine_ids: dict[str, int] = dict(conn.execute("SELECT code, id FROM machines").fetchall())
+    sensors = sensor_ids(conn)
+    rows = [
+        (
+            machine_ids[e.machine_code],
+            sensors[(e.machine_code, e.sensor_name)] if e.sensor_name else None,
+            e.time,
+            e.cleared_at,
+            e.code,
+            e.severity.value,
+            e.message,
+        )
+        for e in events
+    ]
+    with conn.transaction(), conn.cursor() as cur:
+        cur.execute(
+            "DELETE FROM alarms WHERE machine_id = ANY(%s) AND time >= %s AND time < %s",
+            ([machine_ids[c] for c in machine_codes], start, end),
+        )
+        cur.executemany(
+            "INSERT INTO alarms (machine_id, sensor_id, time, cleared_at, code, severity, message)"
+            " VALUES (%s, %s, %s, %s, %s, %s, %s)",
+            rows,
+        )
+    return len(rows)
+
+
+# ------------------------------------------------------------------ ground truth (sim schema)
+
+
+def record_fault(conn: psycopg.Connection, fault: Fault, seed: int) -> int:
+    """Store an injected fault in sim.fault_injections (the evals' answer key). Returns its id."""
+    row = conn.execute(
+        "INSERT INTO sim.fault_injections"
+        " (fault_type, machine_id, sensor_id, start, full_at, severity, seed)"
+        " SELECT %s, m.id, s.id, %s, %s, %s, %s FROM machines m"
+        " LEFT JOIN sensors s ON s.machine_id = m.id AND s.name = %s"
+        " WHERE m.code = %s RETURNING id",
+        (
+            fault.type.value,
+            fault.start,
+            fault.full_at,
+            fault.severity,
+            seed,
+            fault.sensor,
+            fault.machine_code,
+        ),
+    ).fetchone()
+    if row is None:
+        raise ValueError(f"unknown machine {fault.machine_code!r}")
+    return int(row[0])
+
+
+def faults_overlapping(conn: psycopg.Connection, start: datetime, end: datetime) -> list[Fault]:
+    """Faults that affect any part of [start, end): started before `end`, not cleared before
+    `start`. Live mode and backfill re-apply these so a fault doesn't vanish on regeneration."""
+    rows = conn.execute(
+        "SELECT f.fault_type, m.code, f.start, f.full_at, f.severity, s.name, f.cleared_at"
+        " FROM sim.fault_injections f JOIN machines m ON m.id = f.machine_id"
+        " LEFT JOIN sensors s ON s.id = f.sensor_id"
+        " WHERE f.start < %s AND (f.cleared_at IS NULL OR f.cleared_at > %s)"
+        " ORDER BY f.start",
+        (end, start),
+    ).fetchall()
+    return [
+        Fault(FaultType(t), code, st, full, severity=sev, sensor=sensor, cleared_at=cleared)
+        for t, code, st, full, sev, sensor, cleared in rows
+    ]
+
+
+def clear_faults(conn: psycopg.Connection, machine_code: str, at: datetime) -> int:
+    """Repair: mark the machine's active faults cleared and put it back in service."""
+    with conn.transaction():
+        cur = conn.execute(
+            "UPDATE sim.fault_injections f SET cleared_at = %s FROM machines m"
+            " WHERE m.id = f.machine_id AND m.code = %s AND f.cleared_at IS NULL",
+            (at, machine_code),
+        )
+        conn.execute(
+            "UPDATE machines SET status = 'running' WHERE code = %s AND status = 'down'",
+            (machine_code,),
+        )
+    return cur.rowcount

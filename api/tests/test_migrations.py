@@ -12,11 +12,12 @@ EXPECTED_TABLES = {"machines", "sensors", "sensor_readings", "alarms", "incident
 pytestmark = pytest.mark.integration
 
 
-def _tables(db: str) -> set[str]:
+def _tables(db: str, schema: str = "public") -> set[str]:
     with psycopg.connect(libpq_url(db), connect_timeout=5) as conn:
         rows = conn.execute(
-            "SELECT tablename FROM pg_tables WHERE schemaname = 'public'"
-            " AND tablename <> 'alembic_version'"
+            "SELECT tablename FROM pg_tables WHERE schemaname = %s"
+            " AND tablename <> 'alembic_version'",
+            (schema,),
         ).fetchall()
     return {r[0] for r in rows}
 
@@ -33,10 +34,12 @@ def test_upgrade_downgrade_roundtrip(alembic_cfg: Config, temp_db_name: str) -> 
     """Every migration applies on an empty DB, fully reverts, and re-applies cleanly."""
     command.upgrade(alembic_cfg, "head")
     assert _tables(temp_db_name) == EXPECTED_TABLES
+    assert _tables(temp_db_name, schema="sim") == {"fault_injections"}
     assert _hypertables(temp_db_name) == {"sensor_readings": "1 day"}
 
     command.downgrade(alembic_cfg, "base")
     assert _tables(temp_db_name) == set()
+    assert _tables(temp_db_name, schema="sim") == set()
 
     command.upgrade(alembic_cfg, "head")  # downgrades left nothing behind that blocks a re-run
     assert _tables(temp_db_name) == EXPECTED_TABLES

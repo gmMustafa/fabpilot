@@ -12,6 +12,7 @@ from sqlalchemy import (
     Enum,
     ForeignKey,
     Index,
+    Integer,
     String,
     Text,
     UniqueConstraint,
@@ -76,6 +77,17 @@ class WorkOrderStatus(StrEnum):
     APPROVED = "approved"
     REJECTED = "rejected"
     DONE = "done"
+
+
+class FaultType(StrEnum):
+    """The six known root causes the simulator can inject (shared by simulator + evals)."""
+
+    BEARING_WEAR = "bearing_wear"
+    COOLANT_PUMP_FAILURE = "coolant_pump_failure"
+    CLOGGED_FILTER = "clogged_filter"
+    MOTOR_OVERLOAD = "motor_overload"
+    SENSOR_DRIFT = "sensor_drift"
+    BELT_SLIPPAGE = "belt_slippage"
 
 
 def str_enum(enum_cls: type[StrEnum], name: str) -> Enum:
@@ -166,6 +178,9 @@ class Alarm(Base):
     code: Mapped[str] = mapped_column(String(32))  # e.g. "VIB-HIGH", "TEMP-CRIT"
     severity: Mapped[AlarmSeverity] = mapped_column(str_enum(AlarmSeverity, "severity"))
     message: Mapped[str] = mapped_column(Text)
+    # When the condition went back to normal (hysteresis clear level). NULL = still active.
+    # Added in migration 0004: "was the alarm still active when the line stopped?"
+    cleared_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class Incident(Base):
@@ -225,3 +240,32 @@ class WorkOrder(Base):
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     incident: Mapped[Incident] = relationship(back_populates="work_orders")
+
+
+class FaultInjection(Base):
+    """GROUND TRUTH: which fault the simulator injected, where and when.
+
+    Lives in its own Postgres schema `sim`, NOT `public`, on purpose: the evals (Phase 8) grade
+    the agent against this table, so the agent must never be able to read it. A schema boundary
+    lets the agent's DB role be denied access with GRANTs (Phase 4/10) - enforced by Postgres,
+    not by remembering not to expose it.
+    """
+
+    __tablename__ = "fault_injections"
+    __table_args__ = (
+        CheckConstraint("full_at > start", name="full_after_start"),
+        CheckConstraint("severity > 0", name="severity_positive"),
+        {"schema": "sim"},
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    fault_type: Mapped[FaultType] = mapped_column(str_enum(FaultType, "fault_type"))
+    machine_id: Mapped[int] = mapped_column(ForeignKey("machines.id"), index=True)
+    sensor_id: Mapped[int | None] = mapped_column(ForeignKey("sensors.id"))  # drift only
+    start: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    full_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    severity: Mapped[float] = mapped_column(Double, server_default="1.0")
+    seed: Mapped[int] = mapped_column(Integer)  # reproduce the exact data for an eval scenario
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # Repaired (simulator `clear`). NULL = still active: live mode keeps applying it.
+    cleared_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

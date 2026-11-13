@@ -12,7 +12,7 @@ always produces exactly the same data. Evals (Phase 8) depend on that.
 
 import math
 import zlib
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import IntEnum
@@ -23,6 +23,13 @@ import numpy.typing as npt
 
 from app.db.models import MachineType, SensorKind
 from app.plant import MachineSpec, SensorSpec
+from simulator.faults import (
+    Fault,
+    down_mask,
+    measurement_effect,
+    physical_effect,
+    validate,
+)
 
 FloatArray = npt.NDArray[np.float64]
 IntArray = npt.NDArray[np.int64]
@@ -36,6 +43,7 @@ class OpState(IntEnum):
     OFF = 0  # outside shift hours: powered down, cooling toward ambient
     IDLE = 1  # short stop inside a shift (tool change, waiting for material): powered, warm
     RUNNING = 2  # producing
+    DOWN = 3  # tripped by a fault (interlock / overload relay): stopped until repaired
 
 
 @dataclass(frozen=True)
@@ -219,10 +227,21 @@ def sensor_signal(
     rng: np.random.Generator,
     dt: float = DT_SECONDS,
     initial: float | None = None,
+    epoch: IntArray | None = None,
+    faults: Sequence[Fault] = (),
+    seed: int = 0,
 ) -> FloatArray:
     """One sensor's readings. `initial` = where a lagged signal starts (e.g. the last stored
-    reading, so live mode continues smoothly); default: already settled at its first target."""
+    reading, so live mode continues smoothly); default: already settled at its first target.
+
+    Pipeline:  target -> physical fault effects -> lag -> noise -> measurement fault effects
+    """
     target = _target(spec, states, load, ambient)
+    if faults:
+        assert epoch is not None, "faults need the time grid"
+        running = states == OpState.RUNNING
+        for fault in faults:
+            target = physical_effect(fault, spec, epoch, target, running, seed)
     if (tau := TAU_SECONDS.get(spec.kind)) is not None:
         start = float(target[0]) if initial is None else initial
         target = first_order_lag(target, initial=start, dt=dt, tau=tau)
@@ -230,7 +249,11 @@ def sensor_signal(
     noise = rng.normal(0.0, sigma, len(target))
     if spec.kind is SensorKind.RPM:
         noise[states != OpState.RUNNING] = 0.0  # a stopped spindle's encoder reads exactly 0
-    return np.clip(target + noise, 0.0, None)  # no negative pressures / currents / vibration
+    values = np.clip(target + noise, 0.0, None)  # no negative pressures / currents / vibration
+    for fault in faults:
+        assert epoch is not None
+        values = measurement_effect(fault, spec, epoch, values)
+    return values
 
 
 # ------------------------------------------------------------------ public entry point
@@ -281,21 +304,38 @@ def simulate_machine(
     end: datetime,
     seed: int,
     initial: Mapping[str, float] | None = None,
+    faults: Sequence[Fault] = (),
 ) -> MachineSimulation:
-    """Healthy signals for every sensor of one machine over [start, end).
+    """Signals for every sensor of one machine over [start, end): healthy, plus `faults`.
 
     `initial`: sensor name -> value to continue lagged signals from (live mode passes the last
     stored readings). Sensors not in it start settled.
     """
     if start.tzinfo is None or end.tzinfo is None:
         raise ValueError("start/end must be timezone-aware (use UTC)")
+    faults = [f for f in faults if f.machine_code == machine.code]
+    for fault in faults:
+        validate(fault, machine, sensors)
     epoch = time_grid(start, end)
     _, states, load = _plan(epoch, machine, seed)
+    # A tripped machine stays stopped while the fault is active (nobody repaired it yet).
+    for fault in faults:
+        states[down_mask(fault, epoch)] = OpState.DOWN
     ambient = ambient_temperature(epoch)
     noise_rng = machine_rng(seed, f"{machine.code}:noise", int(epoch[0]) if len(epoch) else 0)
     initial = initial or {}
     values = {
-        s.name: sensor_signal(s, states, load, ambient, noise_rng, initial=initial.get(s.name))
+        s.name: sensor_signal(
+            s,
+            states,
+            load,
+            ambient,
+            noise_rng,
+            initial=initial.get(s.name),
+            epoch=epoch,
+            faults=faults,
+            seed=seed,
+        )
         for s in sensors
     }
     return MachineSimulation(
