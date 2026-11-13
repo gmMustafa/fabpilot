@@ -44,3 +44,15 @@
 - One transaction for writes that only make sense together (atomicity): a failing statement aborts the whole transaction and `engine.begin()` rolls back everything — no half-applied state. Postgres never "skips the bad row".
 - Config owns description, the running plant owns state: re-seed must not touch `status`. Only thresholds are re-seedable; `kind`/`unit` give meaning to stored history, so changing them = a new sensor.
 - Validate config at the boundary (Pydantic `extra="forbid"`, ranges) before connecting. Read deprecation warnings: `Result.tuples()` is deprecated in SQLAlchemy 2.1 — check the installed version, not memory.
+
+### 1.3a/b uv workspace + signal model
+- uv workspace: one `uv.lock` + `.venv` at the root for api/simulator (+ later MCP/evals) → no version drift between packages. A member that others import must be a real package (build backend, `py.typed` per PEP 561 — without it mypy treats the import as `Any`; CI missed it because it type-checked both packages together).
+- Healthy signals = schedule (OFF/IDLE/RUNNING, Berlin local time incl. DST) + job load + per-kind physics + first-order lag + noise, all from one seeded RNG (keyed by crc32(machine code), so adding a machine doesn't change the others). Warm-up after shift start leaves the normal band → anomaly detection must know the operating state.
+- First-order lag: Euler `alpha = dt/tau` overshoots for alpha > 1 and diverges for alpha ≥ 2 (error × (1−alpha) per step); exact `alpha = 1 − exp(−dt/tau)` is always in (0,1). It's a recurrence (each output needs the previous) → not a plain numpy expression; it's a first-order IIR filter (`scipy.signal.lfilter`) = the EMA used in anomaly detection.
+- Test the property, not one implementation's numbers: my exact-equality test broke when the implementation got more correct.
+
+### 1.3c Writing readings (backfill + live)
+- `COPY ... FROM STDIN (FORMAT BINARY)` for bulk loads: no per-statement overhead, no 65,535-parameter limit. Idempotent backfill = DELETE window + COPY in one transaction (COPY can't ON CONFLICT). 3M rows in ~35 s.
+- Measure before optimizing: simulation (incl. the Python lag loop) took 0.8 s; 97 % of the time was 3M Python `write_row` calls. Left as is: one-off backfill, simpler code wins until it hurts.
+- psycopg defaults to autocommit=False: the first SELECT opens a transaction and every `conn.transaction()` becomes a SAVEPOINT → nothing commits until close. Hidden in backfill (CLI closes the conn), fatal in the never-ending live loop. Fix: `autocommit=True`. Tests missed it because they read through the writer's own connection → regression test reads from a SECOND connection and uses the real `connect()`; verified it fails with the bug.
+- Plan randomness in fixed blocks of absolute time so a 10 s live tick and a 7-day backfill see the same plant; windows are [start, end) so live resumes exactly at the backfill's end; `initial` carries lag state across the boundary.

@@ -6,6 +6,7 @@ requires-python = ">=3.12"
 dependencies = [
     # Reuses the plant config, models and settings from the API package (same workspace).
     "fabpilot-api",
+    "numpy>=2.5.4",
 ]
 
 [project.scripts]

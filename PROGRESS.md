@@ -11,7 +11,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done (verified, quiz answered, 
 ## Phase 1 — Data & simulator
 - [x] 1.1 SQLAlchemy models + first Alembic migration (incl. hypertable creation)
 - [x] 1.2 Seed script: ~10 machines across 3 lines with sensors
-- [ ] 1.3 Simulator: realistic normal signals (noise, daily cycles) writing readings
+- [x] 1.3 Simulator: realistic normal signals (noise, daily cycles) writing readings
 - [ ] 1.4 Fault injection for the 6 fault types + matching alarms; CLI
 - [ ] 1.5 Read endpoints: list machines, get readings (with time-bucket aggregation)
 

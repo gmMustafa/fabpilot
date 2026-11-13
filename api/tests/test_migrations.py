@@ -5,7 +5,7 @@ import pytest
 from alembic import command
 from alembic.config import Config
 
-from tests.conftest import libpq_url
+from app.testing import libpq_url
 
 EXPECTED_TABLES = {"machines", "sensors", "sensor_readings", "alarms", "incidents", "work_orders"}
 
