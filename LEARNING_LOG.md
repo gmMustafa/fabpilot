@@ -141,3 +141,8 @@
 - Context header on every chunk ("MAN-PMP-001 · title · §5.1 … (in 5. Troubleshooting)"): the embedding knows what the text is about, and the citation ref comes for free.
 - Over the model's limit (512 tokens) the embedding silently truncates: the text is stored and shown to the LLM, but the vector never saw the end → that content is unfindable while the chunk looks complete. Hence the token counter is injected and the budget (350) is checked with the real tokenizer in 3.2b.
 - Corpus-wide tests catch what unit tests can't: no chunk over budget, no content line lost, every numbered section citable. 44 docs → 341 chunks, mean ~97 tokens: small chunks are precise but low-context — whether to merge is a question for the 3.4 eval, not for intuition.
+
+### Extra: pre-commit hooks
+- A pre-commit hook runs before every `git commit` and blocks it on failure. `.git/hooks` isn't versioned, so the `pre-commit` tool keeps the config in the repo (`.pre-commit-config.yaml`) and `pre-commit install` wires it up per clone.
+- Local hooks (`language: system` → `uv run ruff`) use exactly the locked ruff version CI uses and download nothing. Only fast checks belong in a hook (format, lint, secret scan); mypy/pytest stay in CI, or the hook gets skipped.
+- The manual pre-commit secret checks became hooks (`language: fail` for `.env`, `pygrep` for key patterns) AND run in CI, because hooks can be skipped with `--no-verify` or never installed: CI is the gate, the hook is the fast feedback. Verified that each hook actually blocks (bad format, fake key, `.env`).

@@ -13,6 +13,7 @@ incidents → root cause with citations → draft work order → human approval.
 cp .env.example .env            # then set POSTGRES_PASSWORD and the same password in DATABASE_URL
 docker compose up -d            # Postgres 16 + TimescaleDB + pgvector on 127.0.0.1:5433
 uv sync --all-packages          # from the repo root: one .venv for the whole uv workspace
+uv run pre-commit install       # once per clone: ruff + secret checks before every commit
 cd api
 uv run alembic upgrade head     # create schema: extensions, tables, sensor_readings hypertable
 uv run python -m app.seed       # 10 machines / 47 sensors from data/plant.yaml (idempotent)

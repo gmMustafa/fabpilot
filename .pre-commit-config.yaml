@@ -1,0 +1,35 @@
+# Fast checks before every `git commit` (install once: `uv run pre-commit install`).
+# Run on everything by hand: `uv run pre-commit run --all-files`
+#
+# All hooks are LOCAL: they run our own tools from the uv environment, so the hook uses exactly the
+# ruff version CI uses (uv.lock), and pre-commit downloads nothing.
+# Slow checks (mypy, pytest) stay in CI: a hook that takes a minute gets skipped or uninstalled.
+# CI remains the real gate: hooks run only on machines where they're installed, and
+# `git commit --no-verify` skips them.
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-format
+        name: ruff format
+        entry: uv run ruff format
+        language: system
+        types: [python]
+
+      - id: ruff-check
+        name: ruff check
+        # No --fix on purpose: it deleted an import a TODO still needed (2.3). Show, don't change.
+        entry: uv run ruff check
+        language: system
+        types: [python]
+
+      - id: no-env-file
+        name: never commit .env (secrets live only there)
+        entry: ".env holds secrets and must never be committed (copy .env.example instead)"
+        language: fail
+        files: '^\.env$'
+
+      - id: no-openrouter-key
+        name: no OpenRouter API key in committed files
+        entry: 'sk-or-[A-Za-z0-9_-]{12,}'
+        language: pygrep
+        exclude: '^uv\.lock$'
