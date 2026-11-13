@@ -14,15 +14,19 @@ import asyncio
 import logging
 import random
 import time
+import uuid
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 
+from app.gateway.hashing import prompt_hash
 from app.gateway.types import (
     AllModelsFailedError,
     Attempt,
     AuthError,
     BadRequestError,
+    CallRecord,
+    CallRecorder,
     ChatMessage,
     ConnectionFailedError,
     LLMProvider,
@@ -127,11 +131,13 @@ class LLMGateway:
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         clock: Callable[[], float] = time.monotonic,
         rng: Callable[[], float] = random.random,
+        recorder: CallRecorder | None = None,
     ) -> None:
         if not config.models:
             raise ValueError("GatewayConfig.models is empty: set OPENROUTER_MODELS")
         self.provider = provider
         self.config = config
+        self._recorder = recorder
         # Injected so tests run instantly and deterministically (no real sleeping/randomness).
         self._sleep, self._clock, self._rng = sleep, clock, rng
 
@@ -141,10 +147,39 @@ class LLMGateway:
         *,
         max_tokens: int = 1024,
         temperature: float = 0.2,
+        purpose: str = "unspecified",
+    ) -> LLMResponse:
+        """Answer `messages`, with fallbacks/retries. Every attempt is recorded (2.2), also when
+        the call ultimately fails: those are exactly the rows worth looking at later."""
+        call_id = uuid.uuid4()
+        attempts: list[Attempt] = []
+        try:
+            response = await self._run(messages, max_tokens, temperature, attempts)
+            return replace(response, call_id=call_id)
+        finally:
+            if self._recorder is not None:
+                digest = prompt_hash(messages, max_tokens=max_tokens, temperature=temperature)
+                record = CallRecord(call_id, purpose, self.provider.name, digest, attempts)
+                await self._record(record)
+
+    async def _record(self, record: CallRecord) -> None:
+        """Best effort, on purpose: if logging fails (DB briefly down), the caller still gets
+        its answer. The one place an exception is swallowed, and it's logged as ERROR."""
+        assert self._recorder is not None
+        try:
+            await self._recorder.record(record)
+        except Exception:
+            logger.exception("Failed to record LLM call %s (answer unaffected)", record.call_id)
+
+    async def _run(
+        self,
+        messages: list[ChatMessage],
+        max_tokens: int,
+        temperature: float,
+        attempts: list[Attempt],
     ) -> LLMResponse:
         cfg = self.config
         started = self._clock()
-        attempts: list[Attempt] = []
 
         for model in cfg.models:
             retries = 0
@@ -160,7 +195,15 @@ class LLMGateway:
                         model, messages, max_tokens=max_tokens, temperature=temperature
                     )
                 except ProviderError as error:
-                    attempts.append(Attempt(model, _ms(self._clock() - t0), _describe(error)))
+                    attempts.append(
+                        Attempt(
+                            model,
+                            _ms(self._clock() - t0),
+                            error=_describe(error),
+                            error_type=type(error).__name__,
+                            http_status=error.status,
+                        )
+                    )
                     action = classify(error, cfg.max_delay)
                     logger.warning("LLM %s failed (%s) -> %s", model, _describe(error), action)
                     if action is Action.FAIL:
@@ -176,7 +219,16 @@ class LLMGateway:
                     await self._sleep(delay)
                     continue
 
-                attempts.append(Attempt(model, _ms(self._clock() - t0)))
+                attempts.append(
+                    Attempt(
+                        model,
+                        _ms(self._clock() - t0),
+                        tokens_in=result.tokens_in,
+                        tokens_out=result.tokens_out,
+                        reasoning_tokens=result.reasoning_tokens,
+                        finish_reason=result.finish_reason,
+                    )
+                )
                 return LLMResponse(
                     text=result.text,
                     model=result.model,

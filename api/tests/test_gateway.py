@@ -9,6 +9,7 @@ from app.gateway.types import (
     AllModelsFailedError,
     AuthError,
     BadRequestError,
+    CallRecord,
     ChatMessage,
     Completion,
     ConnectionFailedError,
@@ -211,3 +212,75 @@ async def test_all_models_failing_reports_every_attempt() -> None:
 def test_empty_model_list_is_a_config_error() -> None:
     with pytest.raises(ValueError, match="OPENROUTER_MODELS"):
         LLMGateway(FakeProvider({}), GatewayConfig(models=[]))
+
+
+# ------------------------------------------------------------------ call recording (2.2)
+
+
+class FakeRecorder:
+    def __init__(self, fail: bool = False) -> None:
+        self.records: list[CallRecord] = []
+        self.fail = fail
+
+    async def record(self, call: CallRecord) -> None:
+        if self.fail:
+            raise RuntimeError("database down")
+        self.records.append(call)
+
+
+def make_recorded(
+    script: dict[str, Sequence[Outcome]], recorder: FakeRecorder
+) -> tuple[LLMGateway, FakeProvider]:
+    provider, clock = FakeProvider(script), FakeClock()
+    gateway = LLMGateway(
+        provider,
+        GatewayConfig(models=list(script)),
+        sleep=clock.sleep,
+        clock=clock,
+        rng=lambda: 0.5,
+        recorder=recorder,
+    )
+    return gateway, provider
+
+
+async def test_every_attempt_of_a_call_is_recorded_with_one_call_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("app.gateway.gateway.prompt_hash", lambda *a, **k: "h" * 64)
+    rec = FakeRecorder()
+    gw, _ = make_recorded({"a": [ServerError("x", status=503)], "b": [ok("b")]}, rec)
+    gw.config = GatewayConfig(models=["a", "b"], max_retries_per_model=0)
+
+    response = await gw.chat(MSG, purpose="test")
+
+    [record] = rec.records
+    assert record.call_id == response.call_id
+    assert (record.purpose, record.provider, record.prompt_hash) == ("test", "fake", "h" * 64)
+    first, second = record.attempts
+    assert (first.model, first.ok, first.error_type, first.http_status) == (
+        "a",
+        False,
+        "ServerError",
+        503,
+    )
+    assert (second.model, second.ok, second.tokens_in, second.tokens_out) == ("b", True, 10, 5)
+
+
+async def test_failed_calls_are_recorded_too(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The rows you most want to see later are the ones where everything failed."""
+    monkeypatch.setattr("app.gateway.gateway.prompt_hash", lambda *a, **k: "h" * 64)
+    rec = FakeRecorder()
+    gw, _ = make_recorded({"a": [AuthError("bad key", status=401)]}, rec)
+    with pytest.raises(AuthError):
+        await gw.chat(MSG)
+    assert [a.error_type for a in rec.records[0].attempts] == ["AuthError"]
+
+
+async def test_a_broken_recorder_never_breaks_the_answer(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setattr("app.gateway.gateway.prompt_hash", lambda *a, **k: "h" * 64)
+    gw, _ = make_recorded({"a": [ok("a")]}, FakeRecorder(fail=True))
+    response = await gw.chat(MSG)
+    assert response.text == "answer from a"  # the user still gets their answer...
+    assert "Failed to record LLM call" in caplog.text  # ...and the failure is loud in the logs

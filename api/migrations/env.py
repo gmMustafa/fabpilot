@@ -1,6 +1,5 @@
 """Alembic environment: how `alembic upgrade/downgrade/revision` connect to the database."""
 
-import asyncio
 from logging.config import fileConfig
 
 from alembic import context
@@ -12,6 +11,7 @@ from sqlalchemy.schema import SchemaItem
 import app.db.models  # noqa: F401  # registers every model on Base.metadata (for autogenerate)
 from app.config import get_settings
 from app.db.base import Base
+from app.runtime import run
 
 config = context.config
 
@@ -110,7 +110,7 @@ async def run_async_migrations() -> None:
 
 def run_migrations_online() -> None:
     # SelectorEventLoop: async psycopg can't use Windows' default ProactorEventLoop (see 0.3).
-    asyncio.run(run_async_migrations(), loop_factory=asyncio.SelectorEventLoop)
+    run(run_async_migrations())
 
 
 if context.is_offline_mode():

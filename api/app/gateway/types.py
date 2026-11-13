@@ -4,6 +4,7 @@ Providers (OpenRouter, Ollama, a test fake) translate their own errors INTO thes
 retry/fallback logic never needs to know which HTTP library or vendor is underneath.
 """
 
+import uuid
 from dataclasses import dataclass, field
 from typing import Literal, Protocol
 
@@ -29,11 +30,21 @@ class Completion:
 
 @dataclass(frozen=True)
 class Attempt:
-    """One request the gateway made: kept for logging (2.2) and debugging."""
+    """One request the gateway made. Becomes one row in llm_calls (2.2)."""
 
     model: str
     latency_ms: int
-    error: str | None = None  # None = success
+    error: str | None = None  # None = success; else e.g. "ServerError 503"
+    error_type: str | None = None  # exception class name, e.g. "RateLimitedError"
+    http_status: int | None = None
+    tokens_in: int = 0
+    tokens_out: int = 0
+    reasoning_tokens: int = 0
+    finish_reason: str | None = None
+
+    @property
+    def ok(self) -> bool:
+        return self.error is None
 
 
 @dataclass(frozen=True)
@@ -46,6 +57,7 @@ class LLMResponse:
     finish_reason: str | None = None
     reasoning_tokens: int = 0
     attempts: list[Attempt] = field(default_factory=list)
+    call_id: uuid.UUID | None = None  # groups this call's attempts in llm_calls
 
 
 class LLMProvider(Protocol):
@@ -64,6 +76,25 @@ class LLMProvider(Protocol):
 
     async def aclose(self) -> None:
         """Release the HTTP connection pool."""
+
+
+@dataclass(frozen=True)
+class CallRecord:
+    """Everything worth logging about one gateway.chat() call (all of its attempts)."""
+
+    call_id: uuid.UUID
+    purpose: str  # who called: "smoke", "agent.triage", "eval", ...
+    provider: str
+    prompt_hash: str
+    attempts: list[Attempt]
+    cached: bool = False  # answered from the prompt cache (2.3), no request made
+
+
+class CallRecorder(Protocol):
+    """Where call records go (Postgres now; Langfuse in Phase 9). Observer pattern: the gateway
+    reports, it doesn't know or care where records end up."""
+
+    async def record(self, call: CallRecord) -> None: ...
 
 
 # ------------------------------------------------------------------ errors

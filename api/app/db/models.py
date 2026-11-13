@@ -1,10 +1,12 @@
 """ORM models. Tables are added step by step (1.1b, 1.1c, ...), each with its own migration."""
 
+import uuid
 from datetime import date, datetime
 from enum import StrEnum
 from typing import Any
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     Date,
     DateTime,
@@ -16,6 +18,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    Uuid,
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -77,6 +80,11 @@ class WorkOrderStatus(StrEnum):
     APPROVED = "approved"
     REJECTED = "rejected"
     DONE = "done"
+
+
+class LlmCallStatus(StrEnum):
+    OK = "ok"
+    ERROR = "error"
 
 
 class FaultType(StrEnum):
@@ -269,3 +277,40 @@ class FaultInjection(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     # Repaired (simulator `clear`). NULL = still active: live mode keeps applying it.
     cleared_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class LlmCall(Base):
+    """One row per REQUEST the LLM gateway made (2.2). Attempts of one gateway.chat() share a
+    call_id, so retries and fallbacks stay visible instead of collapsing into one "success".
+
+    Stores a prompt HASH, never prompt or answer text: call logs end up in dashboards and
+    exports, and prompts can carry sensitive data. Low volume -> normal table, not a hypertable.
+    """
+
+    __tablename__ = "llm_calls"
+    __table_args__ = (
+        CheckConstraint("attempt_no >= 1", name="attempt_no_positive"),
+        # Attempt n of a call exists once. Its index starts with call_id, so it also serves
+        # "all attempts of call X": a separate call_id index would be pure write overhead.
+        UniqueConstraint("call_id", "attempt_no"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    time: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+    call_id: Mapped[uuid.UUID] = mapped_column(Uuid)
+    attempt_no: Mapped[int] = mapped_column(Integer)
+    purpose: Mapped[str] = mapped_column(String(64))  # "smoke", "agent.triage", "eval", ...
+    provider: Mapped[str] = mapped_column(String(32))
+    model: Mapped[str] = mapped_column(String(128))
+    status: Mapped[LlmCallStatus] = mapped_column(str_enum(LlmCallStatus, "status"))
+    error_type: Mapped[str | None] = mapped_column(String(64))  # e.g. "RateLimitedError"
+    http_status: Mapped[int | None] = mapped_column(Integer)
+    finish_reason: Mapped[str | None] = mapped_column(String(32))
+    tokens_in: Mapped[int] = mapped_column(Integer, server_default="0")
+    tokens_out: Mapped[int] = mapped_column(Integer, server_default="0")
+    reasoning_tokens: Mapped[int] = mapped_column(Integer, server_default="0")
+    latency_ms: Mapped[int] = mapped_column(Integer)
+    prompt_hash: Mapped[str] = mapped_column(String(64))
+    cached: Mapped[bool] = mapped_column(Boolean, server_default="false")  # 2.3 prompt cache

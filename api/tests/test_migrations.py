@@ -7,7 +7,15 @@ from alembic.config import Config
 
 from app.testing import libpq_url
 
-EXPECTED_TABLES = {"machines", "sensors", "sensor_readings", "alarms", "incidents", "work_orders"}
+EXPECTED_TABLES = {
+    "machines",
+    "sensors",
+    "sensor_readings",
+    "alarms",
+    "incidents",
+    "work_orders",
+    "llm_calls",
+}
 
 pytestmark = pytest.mark.integration
 

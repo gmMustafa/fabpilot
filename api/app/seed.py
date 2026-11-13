@@ -3,7 +3,6 @@
 uv run python -m app.seed
 """
 
-import asyncio
 import logging
 from dataclasses import dataclass
 from typing import Any
@@ -15,6 +14,7 @@ from app.config import get_settings
 from app.db.models import Machine, Sensor
 from app.db.session import create_engine
 from app.plant import PlantConfig, load_plant
+from app.runtime import run
 
 logger = logging.getLogger(__name__)
 
@@ -107,4 +107,4 @@ async def _main() -> None:
 
 if __name__ == "__main__":
     logging.basicConfig(level=get_settings().log_level, format="%(levelname)s %(message)s")
-    asyncio.run(_main(), loop_factory=asyncio.SelectorEventLoop)  # Windows + async psycopg (0.3)
+    run(_main())
