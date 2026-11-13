@@ -115,3 +115,11 @@
 - Percentiles, not averages (nine 1 s + one 30 s = 3.9 s average, nobody's experience). `percentile_cont(...) WITHIN GROUP (ORDER BY latency_ms) FILTER (WHERE status='ok')` = how fast a model ANSWERS; always show it next to the error rate — success-only looks great when 90 % fail, all-attempts is skewed both ways (60 s timeouts up, instant 400s down). And p95 over n=3 is just interpolation: show the sample size.
 - `FILTER (WHERE …)` = several conditional aggregates in one pass; aggregates without GROUP BY always return one row, but `sum()` over no rows is NULL → `coalesce`. A bounded window (`hours` 1–720) keeps the query on the time index.
 - My wrong expectation (failed_calls ≥ 1) was a lesson too: the 2.1b failure happened before llm_calls existed — a log only knows what happened after it was built.
+
+## Phase 3 — Knowledge base & RAG
+
+### 3.1a Corpus format + 5 manuals
+- The corpus is DESIGNED like test data: right answers, near-misses (bearing wear vs. misalignment, drift vs. overheating), out-of-scope causes as distractors, and no eval leakage (incidents dated before the simulated period; eval scenarios never copied from them).
+- Strict frontmatter metadata (extra="forbid", doc_id format per type) = what retrieval filters on and citations point to: a typo'd key would be a document that silently never matches a filter. `yaml.safe_load` always — the corpus will not stay "files we wrote ourselves" forever.
+- Docs as code: a test checks every manual's signal table against plant.yaml AND the simulator's alarm rules. It lives in simulator/tests because that's the only place that can import both sides (dependency direction); duplicating the rules in api would check docs against a copy that drifts too.
+- Writing the pump manual exposed a simulator realism bug: a clogged strainer made the centrifugal pump draw MORE current (wrong: power ~ flow, so less). Fixed by passing machine_type into the fault effects (also removed a `normal_max < 5` hack that guessed the pump from a range); regression test verified to fail on the old sign. Domain knowledge finds bugs no unit test asked about.

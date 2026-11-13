@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     # Plant layout shared by seed / simulator / evals. Overridable (e.g. a path inside a container).
     plant_file: Path = _REPO_ROOT / "data" / "plant.yaml"
+    docs_dir: Path = _REPO_ROOT / "data" / "docs"  # knowledge base markdown (3.1)
 
     # --- LLM gateway (OpenRouter). Optional: tests and CI run without a key (LLM is mocked).
     # SecretStr: never shows up in repr(), logs or error messages; read with .get_secret_value().
