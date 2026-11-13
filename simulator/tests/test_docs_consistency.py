@@ -7,10 +7,13 @@ read a manual that contradicts the data it is looking at.
 """
 
 import re
+from collections import Counter
+from datetime import date
 
 import pytest
 
 from app.config import get_settings
+from app.db.models import FaultType
 from app.plant import PlantConfig, SensorSpec, load_plant
 from app.rag.corpus import Document, SourceType, load_corpus
 from simulator.alarms import Direction, rules_for
@@ -124,6 +127,55 @@ def test_all_doc_references_resolve(docs: list[Document]) -> None:
 
     # Report all broken references together
     assert not broken, f"references to missing documents: {broken}"
+
+
+INCIDENT_SECTIONS = [
+    "Summary",
+    "Timeline",
+    "Evidence",
+    "Root cause",
+    "Corrective actions",
+    "Lessons learned",
+]
+# Simulated data (backfill, live, eval scenarios) starts after this date. Past incidents must end
+# before it, so an eval question can never find "its own" incident report (no leakage).
+SIMULATION_STARTS = date(2026, 10, 1)
+
+
+def _incidents(docs: list[Document]) -> list[Document]:
+    return [d for d in docs if d.meta.source_type is SourceType.INCIDENT_REPORT]
+
+
+def test_incidents_have_the_required_sections(docs: list[Document]) -> None:
+    for doc in _incidents(docs):
+        titles = re.findall(r"^## \d+\. (.+)$", doc.body, re.MULTILINE)
+        assert titles == INCIDENT_SECTIONS, doc.meta.doc_id
+
+
+def test_incidents_predate_the_simulated_period(docs: list[Document]) -> None:
+    late = [d.meta.doc_id for d in _incidents(docs) if d.meta.effective_date >= SIMULATION_STARTS]
+    assert not late, f"incidents inside the simulated period (eval leakage risk): {late}"
+
+
+def test_incident_ids_match_their_year(docs: list[Document]) -> None:
+    for doc in _incidents(docs):
+        assert doc.meta.doc_id[4:8] == str(doc.meta.effective_date.year), doc.meta.doc_id
+
+
+def test_incident_labels_are_consistent_and_balanced(docs: list[Document]) -> None:
+    """Labels are ground truth for retrieval evals (3.4) and few-shot analogies: they must agree
+    with each other, and every case the agent must handle needs at least two examples."""
+    incidents = [d.meta for d in _incidents(docs)]
+    for m in incidents:
+        if m.fault is FaultType.SENSOR_DRIFT:
+            assert m.false_alarm, f"{m.doc_id}: sensor drift is by definition a false alarm"
+        if m.false_alarm:
+            assert m.fault in (FaultType.SENSOR_DRIFT, None), f"{m.doc_id}: false alarm + {m.fault}"
+
+    counts = Counter(m.fault for m in incidents)
+    assert all(counts[f] >= 2 for f in FaultType), counts
+    assert counts[None] >= 4, "need causes the simulator can't produce (retrieval distractors)"
+    assert sum(1 for m in incidents if m.false_alarm) >= 4
 
 
 def test_incidents_match_the_plant(plant: PlantConfig, docs: list[Document]) -> None:

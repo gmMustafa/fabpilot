@@ -45,3 +45,35 @@ Sections are numbered `## 1. Title`, so a citation can point at one: `[MAN-PMP-0
    varied wording. Eval scenarios (Phase 8) must not be copied from them: an eval that finds its own
    answer in an incident report measures copying, not reasoning.
 4. **Fictional equipment.** Model names (VMC-500, CP-75, ...) and vendor ("Demo OEM") are invented.
+
+## Template: incident report
+
+Copy into `incidents/INC-<year>-<nnn>.md`. The tests in `simulator/tests/test_docs_consistency.py`
+check it: the six sections in this order, a date before 2026-10-01 (the simulated period), the year in
+the ID matching the date, a machine and fault that exist and fit together, and only alarm codes that
+machine type can raise (see its manual §4).
+
+```markdown
+---
+doc_id: INC-2026-9nn
+source_type: incident_report
+title: "M-xx <what happened, in a few words>"
+machine_types: [<the machine's type>]
+revision: "1"
+effective_date: 2026-mm-dd        # the incident date
+machine: M-xx
+fault: <a FaultType, or delete this line for a cause the simulator can't produce>
+false_alarm: <true | false>       # sensor_drift is always true
+root_cause: "<one sentence a technician would write>"
+---
+# INC-2026-9nn <same title>
+
+SYNTHETIC DOCUMENT (FabPilot demo). Author: <role>, <initials>.
+
+## 1. Summary
+## 2. Timeline
+## 3. Evidence
+## 4. Root cause
+## 5. Corrective actions
+## 6. Lessons learned
+```
