@@ -1,8 +1,11 @@
 """Build the gateway from settings: the one place the rest of the app gets an LLM from."""
 
+from datetime import timedelta
+
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app.config import Settings
+from app.gateway.cache import DbPromptCache
 from app.gateway.gateway import GatewayConfig, LLMGateway
 from app.gateway.openrouter import OpenRouterProvider
 from app.gateway.recorder import DbCallRecorder
@@ -11,7 +14,8 @@ from app.gateway.recorder import DbCallRecorder
 def build_gateway(settings: Settings, *, engine: AsyncEngine | None = None) -> LLMGateway:
     """OpenRouter gateway with the configured fallback list, retries and budgets.
 
-    With `engine`, every attempt is logged to llm_calls (2.2).
+    With `engine`: every attempt is logged to llm_calls (2.2), and, if LLM_CACHE_ENABLED, repeated
+    requests are answered from llm_cache (2.3).
     """
     if settings.openrouter_api_key is None:
         raise RuntimeError("OPENROUTER_API_KEY is not set (see .env.example)")
@@ -28,4 +32,11 @@ def build_gateway(settings: Settings, *, engine: AsyncEngine | None = None) -> L
         deadline=settings.llm_deadline_seconds,
     )
     recorder = DbCallRecorder(engine) if engine is not None else None
-    return LLMGateway(provider, config, recorder=recorder)
+    cache = DbPromptCache(engine) if engine is not None and settings.llm_cache_enabled else None
+    return LLMGateway(
+        provider,
+        config,
+        recorder=recorder,
+        cache=cache,
+        cache_ttl=timedelta(hours=settings.llm_cache_ttl_hours),
+    )

@@ -43,6 +43,10 @@ class Settings(BaseSettings):
     llm_max_retries: int = 2  # same-model retries for transient errors
     llm_max_attempts: int = 4  # total requests per gateway call, across all models
     llm_deadline_seconds: float = 120.0  # wall clock for one gateway call incl. backoff
+    # Prompt cache (2.3): answer repeated requests from Postgres, 0 tokens, ~ms. false = OFF
+    # everywhere. TTL: free models change, a months-old answer no longer represents them.
+    llm_cache_enabled: bool = True
+    llm_cache_ttl_hours: float = 168.0
 
     @field_validator("openrouter_models", mode="before")
     @classmethod

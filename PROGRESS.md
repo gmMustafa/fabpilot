@@ -18,7 +18,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done (verified, quiz answered, 
 ## Phase 2 — LLM gateway
 - [x] 2.1 OpenRouter client with model fallback list, retries, timeouts
 - [x] 2.2 Log every call to `llm_calls`
-- [ ] 2.3 Prompt cache (hash → response) toggled by env var
+- [x] 2.3 Prompt cache (hash → response) toggled by env var
 - [ ] 2.4 Optional Ollama provider behind the same interface
 - [ ] 2.5 `/gateway/stats` endpoint
 

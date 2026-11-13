@@ -16,7 +16,11 @@ from app.runtime import run
 config = context.config
 
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # disable_existing_loggers=False: the default (True) silently DISABLES every logger that
+    # already exists. Any process that runs migrations in code (test fixtures, the eval harness,
+    # an API migrating on startup) would lose its own logs from then on, including the "loud"
+    # ERRORs the gateway relies on (found in 2.3 via an order-dependent test failure).
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # Autogenerate compares this metadata (our models) with the live database to draft migrations.
 target_metadata = Base.metadata

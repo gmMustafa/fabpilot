@@ -15,6 +15,7 @@ EXPECTED_TABLES = {
     "incidents",
     "work_orders",
     "llm_calls",
+    "llm_cache",
 }
 
 pytestmark = pytest.mark.integration

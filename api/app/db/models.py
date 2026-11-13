@@ -314,3 +314,27 @@ class LlmCall(Base):
     latency_ms: Mapped[int] = mapped_column(Integer)
     prompt_hash: Mapped[str] = mapped_column(String(64))
     cached: Mapped[bool] = mapped_column(Boolean, server_default="false")  # 2.3 prompt cache
+
+
+class LlmCacheEntry(Base):
+    """Prompt cache (2.3): one clean answer per cache key.
+
+    cache_key = sha256(scope + prompt_hash). scope is "shared" (any model's answer counts) or
+    "per_model:<models>" (evals compare models, so they must not share answers). Only clean answers
+    are stored (finish_reason "stop", non-empty): a cached bad answer would replay forever.
+    """
+
+    __tablename__ = "llm_cache"
+
+    cache_key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    prompt_hash: Mapped[str] = mapped_column(String(64))
+    scope: Mapped[str] = mapped_column(String(512))
+    text: Mapped[str] = mapped_column(Text)
+    model: Mapped[str] = mapped_column(String(128))  # which model originally answered
+    tokens_in: Mapped[int] = mapped_column(Integer)
+    tokens_out: Mapped[int] = mapped_column(Integer)
+    reasoning_tokens: Mapped[int] = mapped_column(Integer, server_default="0")
+    finish_reason: Mapped[str] = mapped_column(String(32))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    hits: Mapped[int] = mapped_column(Integer, server_default="0")
+    last_hit_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

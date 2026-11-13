@@ -36,7 +36,8 @@ async def _main(question: str) -> int:
         await engine.dispose()
     print(r.text.strip())
     print(
-        f"\n-- model={r.model} tokens_in={r.tokens_in} tokens_out={r.tokens_out} "
+        f"\n-- {'CACHE HIT ' if r.cached else ''}model={r.model} "
+        f"tokens_in={r.tokens_in} tokens_out={r.tokens_out} "
         f"finish={r.finish_reason} reasoning_tokens={r.reasoning_tokens} "
         f"latency={r.latency_ms} ms attempts={[(a.model, a.error) for a in r.attempts]}"
     )

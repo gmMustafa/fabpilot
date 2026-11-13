@@ -58,6 +58,7 @@ class LLMResponse:
     reasoning_tokens: int = 0
     attempts: list[Attempt] = field(default_factory=list)
     call_id: uuid.UUID | None = None  # groups this call's attempts in llm_calls
+    cached: bool = False  # answered from the prompt cache (2.3): no request made
 
 
 class LLMProvider(Protocol):

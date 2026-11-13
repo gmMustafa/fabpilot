@@ -17,8 +17,10 @@ import time
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
+from datetime import timedelta
 from enum import StrEnum
 
+from app.gateway.cache import CachedAnswer, CachePolicy, PromptCache, cache_key, is_cacheable
 from app.gateway.hashing import prompt_hash
 from app.gateway.types import (
     AllModelsFailedError,
@@ -132,12 +134,15 @@ class LLMGateway:
         clock: Callable[[], float] = time.monotonic,
         rng: Callable[[], float] = random.random,
         recorder: CallRecorder | None = None,
+        cache: PromptCache | None = None,
+        cache_ttl: timedelta = timedelta(hours=168),
     ) -> None:
         if not config.models:
             raise ValueError("GatewayConfig.models is empty: set OPENROUTER_MODELS")
         self.provider = provider
         self.config = config
         self._recorder = recorder
+        self._cache, self._cache_ttl = cache, cache_ttl
         # Injected so tests run instantly and deterministically (no real sleeping/randomness).
         self._sleep, self._clock, self._rng = sleep, clock, rng
 
@@ -148,19 +153,74 @@ class LLMGateway:
         max_tokens: int = 1024,
         temperature: float = 0.2,
         purpose: str = "unspecified",
+        cache: CachePolicy = CachePolicy.SHARED,
     ) -> LLMResponse:
-        """Answer `messages`, with fallbacks/retries. Every attempt is recorded (2.2), also when
-        the call ultimately fails: those are exactly the rows worth looking at later."""
+        """Answer `messages`: from the prompt cache if possible (2.3), else via fallbacks/retries.
+
+        Every attempt is recorded (2.2), also when the call ultimately fails: those are exactly
+        the rows worth looking at later. A cache hit is recorded as one attempt with cached=True.
+        """
         call_id = uuid.uuid4()
         attempts: list[Attempt] = []
+        cached = False
+        needs_hash = self._recorder is not None or (
+            self._cache is not None and cache is not CachePolicy.OFF
+        )
+        digest = (
+            prompt_hash(messages, max_tokens=max_tokens, temperature=temperature)
+            if needs_hash
+            else ""
+        )
+        key = cache_key(digest, cache, self.config.models) if self._cache is not None else None
         try:
+            if key is not None:
+                t0 = self._clock()
+                hit = await self._cache_get(key[0])
+                if hit is not None:
+                    cached = True
+                    attempts.append(
+                        Attempt(hit.model, _ms(self._clock() - t0), finish_reason=hit.finish_reason)
+                    )
+                    return LLMResponse(
+                        text=hit.text,
+                        model=hit.model,
+                        tokens_in=0,  # tokens actually SPENT by this call: none
+                        tokens_out=0,
+                        latency_ms=_ms(self._clock() - t0),
+                        finish_reason=hit.finish_reason,
+                        attempts=attempts,
+                        call_id=call_id,
+                        cached=True,
+                    )
             response = await self._run(messages, max_tokens, temperature, attempts)
+            if key is not None and is_cacheable(response.text, response.finish_reason):
+                await self._cache_put(key, digest, response)
             return replace(response, call_id=call_id)
         finally:
             if self._recorder is not None:
-                digest = prompt_hash(messages, max_tokens=max_tokens, temperature=temperature)
-                record = CallRecord(call_id, purpose, self.provider.name, digest, attempts)
+                record = CallRecord(
+                    call_id, purpose, self.provider.name, digest, attempts, cached=cached
+                )
                 await self._record(record)
+
+    async def _cache_get(self, key: str) -> CachedAnswer | None:
+        """Best effort: a broken cache is a MISS (logged), never the reason a call fails."""
+        assert self._cache is not None
+        try:
+            return await self._cache.get(key, self._cache_ttl)
+        except Exception:
+            logger.exception("Prompt cache lookup failed; treating as a miss")
+            return None
+
+    async def _cache_put(self, key: tuple[str, str], digest: str, r: LLMResponse) -> None:
+        assert self._cache is not None and r.finish_reason is not None
+        answer = CachedAnswer(
+            r.text, r.model, r.tokens_in, r.tokens_out, r.reasoning_tokens, r.finish_reason
+        )
+        try:
+            await self._cache.put(key[0], digest, key[1], answer, self._cache_ttl)
+        except Exception:
+            logger.exception("Prompt cache store failed (answer unaffected)")
 
     async def _record(self, record: CallRecord) -> None:
         """Best effort, on purpose: if logging fails (DB briefly down), the caller still gets

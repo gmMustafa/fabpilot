@@ -1,9 +1,11 @@
 """Gateway logic with a scripted fake provider: no network, no real sleeping, deterministic."""
 
 from collections.abc import Sequence
+from datetime import timedelta
 
 import pytest
 
+from app.gateway.cache import CachedAnswer, CachePolicy, cache_key
 from app.gateway.gateway import Action, GatewayConfig, LLMGateway, backoff_delay, classify
 from app.gateway.types import (
     AllModelsFailedError,
@@ -284,3 +286,116 @@ async def test_a_broken_recorder_never_breaks_the_answer(
     response = await gw.chat(MSG)
     assert response.text == "answer from a"  # the user still gets their answer...
     assert "Failed to record LLM call" in caplog.text  # ...and the failure is loud in the logs
+
+
+# ------------------------------------------------------------------ prompt cache (2.3)
+
+
+class FakeCache:
+    """In-memory PromptCache. `broken` simulates the cache DB being down."""
+
+    def __init__(self, broken: bool = False) -> None:
+        self.store: dict[str, CachedAnswer] = {}
+        self.gets = self.puts = 0
+        self.broken = broken
+
+    async def get(self, key: str, ttl: timedelta) -> CachedAnswer | None:
+        self.gets += 1
+        if self.broken:
+            raise RuntimeError("cache db down")
+        return self.store.get(key)
+
+    async def put(
+        self, key: str, prompt_hash: str, scope: str, answer: CachedAnswer, ttl: timedelta
+    ) -> None:
+        self.puts += 1
+        if self.broken:
+            raise RuntimeError("cache db down")
+        self.store[key] = answer
+
+
+def make_cached(
+    script: dict[str, Sequence[Outcome]], cache: FakeCache, recorder: FakeRecorder | None = None
+) -> tuple[LLMGateway, FakeProvider]:
+    provider, clock = FakeProvider(script), FakeClock()
+    gateway = LLMGateway(
+        provider,
+        GatewayConfig(models=list(script)),
+        sleep=clock.sleep,
+        clock=clock,
+        rng=lambda: 0.5,
+        recorder=recorder,
+        cache=cache,
+    )
+    return gateway, provider
+
+
+def stop(text: str = "cached?", model: str = "a") -> Completion:
+    return Completion(text=text, model=model, tokens_in=10, tokens_out=5, finish_reason="stop")
+
+
+async def test_second_identical_request_is_a_cache_hit_with_zero_tokens() -> None:
+    cache, rec = FakeCache(), FakeRecorder()
+    gw, provider = make_cached({"a": [stop("first answer")]}, cache, rec)
+
+    first = await gw.chat(MSG, purpose="dev")
+    second = await gw.chat(MSG, purpose="dev")
+
+    assert provider.calls == ["a"]  # only ONE real request
+    assert (first.cached, second.cached) == (False, True)
+    assert second.text == "first answer"
+    assert (second.tokens_in, second.tokens_out) == (0, 0)  # nothing spent
+    assert [r.cached for r in rec.records] == [False, True]  # the hit is logged too
+
+
+@pytest.mark.parametrize(
+    "completion",
+    [
+        Completion(
+            text="The bearing is", model="a", tokens_in=1, tokens_out=1, finish_reason="length"
+        ),  # truncated
+        Completion(text="   ", model="a", tokens_in=1, tokens_out=1, finish_reason="stop"),  # empty
+        Completion(text="ok", model="a", tokens_in=1, tokens_out=1, finish_reason=None),  # unknown
+    ],
+    ids=["truncated", "blank", "no-finish-reason"],
+)
+async def test_unclean_answers_are_never_cached(completion: Completion) -> None:
+    cache = FakeCache()
+    gw, _ = make_cached({"a": [completion]}, cache)
+    await gw.chat(MSG)
+    assert cache.store == {}  # replaying a bad answer forever would be invisible
+
+
+async def test_errors_are_never_cached() -> None:
+    cache = FakeCache()
+    gw, _ = make_cached({"a": [AuthError("bad key", status=401)]}, cache)
+    with pytest.raises(AuthError):
+        await gw.chat(MSG)
+    assert cache.puts == 0
+
+
+async def test_policy_off_skips_the_cache_entirely() -> None:
+    cache = FakeCache()
+    gw, provider = make_cached({"a": [stop(), stop()]}, cache)
+    await gw.chat(MSG, cache=CachePolicy.OFF)
+    await gw.chat(MSG, cache=CachePolicy.OFF)
+    assert (cache.gets, cache.puts, len(provider.calls)) == (0, 0, 2)
+
+
+def test_per_model_keys_separate_models_shared_keys_dont() -> None:
+    """Quiz 2.2: comparing models must not compare the cache with itself."""
+    shared_a = cache_key("h", CachePolicy.SHARED, ["model-a"])
+    shared_b = cache_key("h", CachePolicy.SHARED, ["model-b"])
+    per_a = cache_key("h", CachePolicy.PER_MODEL, ["model-a"])
+    per_b = cache_key("h", CachePolicy.PER_MODEL, ["model-b"])
+    assert shared_a == shared_b
+    assert per_a != per_b and per_a != shared_a
+    assert cache_key("h", CachePolicy.OFF, ["model-a"]) is None
+
+
+async def test_a_broken_cache_is_a_miss_not_a_failure(caplog: pytest.LogCaptureFixture) -> None:
+    gw, provider = make_cached({"a": [stop("live answer")]}, FakeCache(broken=True))
+    response = await gw.chat(MSG)
+    assert response.text == "live answer" and provider.calls == ["a"]
+    assert "Prompt cache lookup failed" in caplog.text
+    assert "Prompt cache store failed" in caplog.text
