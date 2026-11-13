@@ -107,3 +107,11 @@
 - `get()` is ONE `UPDATE … RETURNING` (fresh? + count + read can't race), inside `engine.begin()`: with `connect()` and no commit, SQLAlchemy 2.x rolls back on close → the caller gets the answer but the hit vanishes; only a test reading via a separate connection catches it.
 - An upsert's conflict rule must cover every reason a row can already exist: `DO NOTHING` was right for a fresh duplicate (stampede: first answer wins) but an EXPIRED leftover then blocked every new put → that prompt missed forever. Fix: `DO UPDATE … WHERE created_at <= now() - ttl` (same freshness rule as get). Found from the quiz question "why not delete on the spot?"; regression test verified to fail on the old code.
 - Order-dependent test failure = shared global state: Alembic's `fileConfig()` disables all existing loggers by default, so after an in-process migration the gateway's ERROR logs were silently gone → `disable_existing_loggers=False`. And: never run `ruff --fix` on a file with a TODO — it deleted the import the TODO needed.
+
+### 2.4 Ollama provider — skipped (optional; free quota is enough for now, revisit for bulk evals in Phase 8)
+
+### 2.5 /gateway/stats
+- Know the grain: one llm_calls row = one ATTEMPT. requests (attempts that reached a provider) is what the quota counts — an upper bound, rejected 429s may not count; calls = distinct call_id; a call FAILED when no attempt succeeded (`bool_or(status='ok')` per call_id in a CTE). Cache hits are calls but not requests.
+- Percentiles, not averages (nine 1 s + one 30 s = 3.9 s average, nobody's experience). `percentile_cont(...) WITHIN GROUP (ORDER BY latency_ms) FILTER (WHERE status='ok')` = how fast a model ANSWERS; always show it next to the error rate — success-only looks great when 90 % fail, all-attempts is skewed both ways (60 s timeouts up, instant 400s down). And p95 over n=3 is just interpolation: show the sample size.
+- `FILTER (WHERE …)` = several conditional aggregates in one pass; aggregates without GROUP BY always return one row, but `sum()` over no rows is NULL → `coalesce`. A bounded window (`hours` 1–720) keeps the query on the time index.
+- My wrong expectation (failed_calls ≥ 1) was a lesson too: the 2.1b failure happened before llm_calls existed — a log only knows what happened after it was built.

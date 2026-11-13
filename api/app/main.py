@@ -11,7 +11,7 @@ from fastapi import FastAPI
 
 from app.config import get_settings
 from app.db.session import create_engine
-from app.routers import health, machines
+from app.routers import gateway, health, machines
 
 
 @asynccontextmanager
@@ -31,6 +31,7 @@ app = FastAPI(
 )
 app.include_router(health.router)
 app.include_router(machines.router)
+app.include_router(gateway.router)
 
 
 @app.get("/")

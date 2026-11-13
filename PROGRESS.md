@@ -1,6 +1,6 @@
 # FabPilot — Progress
 
-Legend: `[ ]` todo · `[~]` in progress · `[x]` done (verified, quiz answered, committed)
+Legend: `[ ]` todo · `[~]` in progress · `[x]` done (verified, quiz answered, committed) · `[-]` skipped (optional)
 
 ## Phase 0 — Setup
 - [x] 0.1 Init git repo, folder structure, `.gitignore`, `.env.example`, `PROGRESS.md`, `LEARNING_LOG.md`
@@ -19,8 +19,8 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done (verified, quiz answered, 
 - [x] 2.1 OpenRouter client with model fallback list, retries, timeouts
 - [x] 2.2 Log every call to `llm_calls`
 - [x] 2.3 Prompt cache (hash → response) toggled by env var
-- [ ] 2.4 Optional Ollama provider behind the same interface
-- [ ] 2.5 `/gateway/stats` endpoint
+- [-] 2.4 Optional Ollama provider behind the same interface (skipped: free quota is enough for now; revisit for bulk evals in Phase 8)
+- [x] 2.5 `/gateway/stats` endpoint
 
 ## Phase 3 — Knowledge base & RAG
 - [ ] 3.1 Synthetic docs in `data/docs/` (manuals, SOPs, ~30 incident reports)

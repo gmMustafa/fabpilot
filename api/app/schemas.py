@@ -54,3 +54,34 @@ class ReadingsOut(_Out):
     start: datetime
     end: datetime
     points: list[ReadingBucket]
+
+
+class StatsTotals(_Out):
+    calls: int  # distinct gateway.chat() calls (questions asked)
+    failed_calls: int  # calls where NO attempt succeeded
+    requests: int  # attempts that reached a provider: what the free quota counts
+    cache_hits: int
+    tokens_in: int
+    tokens_out: int
+    # Provider requests since 00:00 UTC. An ESTIMATE of the daily free quota use: not verified
+    # that OpenRouter resets at UTC midnight, and it can't see requests made outside FabPilot.
+    requests_today_utc: int
+
+
+class ModelStats(_Out):
+    model: str
+    requests: int
+    ok: int
+    errors: int
+    error_types: dict[str, int]  # e.g. {"RateLimitedError": 2}
+    latency_p50_ms: float | None  # over successful requests; None if there were none
+    latency_p95_ms: float | None
+    tokens_in: int
+    tokens_out: int
+
+
+class GatewayStats(_Out):
+    window_hours: int
+    since: datetime
+    totals: StatsTotals
+    models: list[ModelStats]
