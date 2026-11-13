@@ -145,12 +145,16 @@ def _band(spec: SensorSpec) -> float:
 def physical_effect(
     fault: Fault,
     spec: SensorSpec,
+    machine_type: MachineType,
     epoch: IntArray,
     target: FloatArray,
     running: BoolArray,
     seed: int,
 ) -> FloatArray:
-    """Change the TARGET (the real process) of one sensor. Returns a new array."""
+    """Change the TARGET (the real process) of one sensor. Returns a new array.
+
+    `machine_type`: the same fault plays out differently per machine (CLOGGED_FILTER).
+    """
     p = progress(fault, epoch)
     if not p.any():
         return target
@@ -174,15 +178,25 @@ def physical_effect(
             elif kind is SensorKind.TEMPERATURE and "spindle" in name:
                 out[running] += 1.2 * band * fault.severity * dead[running]
         case FaultType.CLOGGED_FILTER:
-            # Differential pressure across the filter rises steadily; the machine works harder.
+            # Differential pressure across the filter rises steadily on both machine types.
+            # What follows depends on the machine (and the manuals say the same):
+            # - screw compressor (positive displacement): higher compression ratio, it works
+            #   harder -> current and discharge temperature up (MAN-CMP-001 §5.1).
+            # - centrifugal pump: starved suction -> less flow -> discharge pressure down and
+            #   current slightly DOWN, since its power ~ flow (MAN-PMP-001 §5.4).
+            ramp = band * fault.severity * p[running]
             if name.endswith("_dp"):
-                out[running] += 1.5 * band * fault.severity * p[running]
-            elif kind is SensorKind.CURRENT:
-                out[running] += 0.15 * band * fault.severity * p[running]
-            elif kind is SensorKind.TEMPERATURE and "discharge" in name:
-                out[running] += 0.3 * band * fault.severity * p[running]
-            elif name == "discharge_pressure" and spec.normal_max < 5:  # pump: starved suction
-                out[running] -= 0.5 * band * fault.severity * p[running]
+                out[running] += 1.5 * ramp
+            elif machine_type is MachineType.COMPRESSOR:
+                if kind is SensorKind.CURRENT:
+                    out[running] += 0.15 * ramp
+                elif kind is SensorKind.TEMPERATURE and "discharge" in name:
+                    out[running] += 0.3 * ramp
+            elif machine_type is MachineType.PUMP:
+                if kind is SensorKind.CURRENT:
+                    out[running] -= 0.15 * ramp
+                elif name == "discharge_pressure":
+                    out[running] -= 0.5 * ramp
         case FaultType.MOTOR_OVERLOAD:
             # During episodes: current jumps WHILE speed sags (the motor can't hold speed under
             # the load). This breaks the healthy current-tracks-speed correlation.

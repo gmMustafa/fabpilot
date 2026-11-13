@@ -230,6 +230,7 @@ def sensor_signal(
     epoch: IntArray | None = None,
     faults: Sequence[Fault] = (),
     seed: int = 0,
+    machine_type: MachineType | None = None,
 ) -> FloatArray:
     """One sensor's readings. `initial` = where a lagged signal starts (e.g. the last stored
     reading, so live mode continues smoothly); default: already settled at its first target.
@@ -239,9 +240,10 @@ def sensor_signal(
     target = _target(spec, states, load, ambient)
     if faults:
         assert epoch is not None, "faults need the time grid"
+        assert machine_type is not None, "faults need the machine type"
         running = states == OpState.RUNNING
         for fault in faults:
-            target = physical_effect(fault, spec, epoch, target, running, seed)
+            target = physical_effect(fault, spec, machine_type, epoch, target, running, seed)
     if (tau := TAU_SECONDS.get(spec.kind)) is not None:
         start = float(target[0]) if initial is None else initial
         target = first_order_lag(target, initial=start, dt=dt, tau=tau)
@@ -335,6 +337,7 @@ def simulate_machine(
             epoch=epoch,
             faults=faults,
             seed=seed,
+            machine_type=machine.type,
         )
         for s in sensors
     }

@@ -99,6 +99,23 @@ def test_clogged_filter_pressure_rises_gradually(plant: PlantConfig) -> None:
     )
 
 
+def test_clogged_strainer_starves_the_pump(plant: PlantConfig) -> None:
+    """Centrifugal pump: less flow -> LOWER discharge pressure and current (MAN-PMP-001 §5.4).
+    Regression: the pump used to draw MORE current, contradicting its own manual."""
+    start, full = MONDAY, MONDAY + timedelta(days=2)
+    fault = Fault(FaultType.CLOGGED_FILTER, "M-09", start, full)
+    healthy, faulty, specs = _pair(plant, fault, start, full)
+    running = faulty.states[-360:] == OpState.RUNNING
+    assert running.any()
+
+    def last_hour(sim: MachineSimulation, name: str) -> float:
+        return float(sim.values[name][-360:][running].mean())
+
+    assert last_hour(faulty, "suction_strainer_dp") > specs["suction_strainer_dp"].normal_max
+    assert last_hour(faulty, "discharge_pressure") < last_hour(healthy, "discharge_pressure")
+    assert last_hour(faulty, "motor_current") < last_hour(healthy, "motor_current")
+
+
 def test_motor_overload_breaks_current_speed_correlation(plant: PlantConfig) -> None:
     start = MONDAY + timedelta(hours=8)
     fault = Fault(FaultType.MOTOR_OVERLOAD, "M-05", start, start + timedelta(hours=2))
