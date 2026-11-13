@@ -79,3 +79,18 @@
 - Half-open ranges `[start, end)` tile perfectly: no duplicate at the boundary, no gap from "23:59:59" tricks (microsecond timestamps). Same convention as Python ranges, time_bucket and the simulator windows.
 - Bind every value, even "safe" enum ones: correct typing (timedelta → interval), one query text → plan reuse / psycopg auto-prepare, grouped stats in pg_stat_statements, defense in depth. Raw SQL in text() isn't checked by mypy → integration tests catch typos like `FROM readings`.
 - A SQLAlchemy Row is a tuple: `row.count` is `tuple.count()`, `row.t` is a legacy shortcut → read by name via `result.mappings()` or unpack.
+
+## Phase 2 — LLM gateway
+
+### 2.1a Gateway core (fallback, retries, budget)
+- Error taxonomy decides everything: transient (timeout, connection, 5xx, short 429) → retry same model with backoff; "this model is out" (404, long Retry-After) → next model; our side / account-wide (400, 401, quota) → fail fast — retrying or falling back only burns quota and delays the error.
+- Fail closed on unknown errors: a wrong RETRY silently burns budget and hides the bug; a wrong FAIL is one loud, visible error you then add to the taxonomy (same idea as deny-by-default and safety interlocks).
+- Exponential backoff with jitter (avoid thundering herd); Retry-After wins but capped; a TOTAL attempt budget + wall-clock deadline per call (3 models × 3 retries would be 9 requests of a 50/day budget). One component owns retries: SDK retries off (2.1b) or they multiply.
+- Inject sleep/clock/rng → retry scenarios that take minutes run in ms, deterministically. `Protocol` = structural typing: a fake provider fits without inheriting.
+
+### 2.1b OpenRouter provider + first real call
+- Docs ≠ reality: an unknown/removed model returns 400 "not a valid model ID" (docs: 404) → mapped to ModelUnavailable so a rotated-away free model falls back instead of failing every call. Per-minute and daily 429 are identical except `X-RateLimit-Reset` (hours away = account-wide daily quota → fail fast).
+- Check the installed library, not memory: openai 3.x uses `httpx2`, so respx would have mocked nothing → inject `httpx2.MockTransport` (no extra dependency, explicit).
+- Exactly one layer owns retries (`max_retries=0` on the SDK): otherwise 4 gateway attempts × 3 SDK requests = 12 per question, blind retries on the daily-quota 429, and wrong latency/deadline accounting (retry storms in production).
+- HTTP 200 ≠ success: check for an embedded `error`, empty choices, and "no content + finish_reason=length". The first real call failed exactly so: a reasoning model spent 20/20 tokens thinking. → OutputTruncatedError (FAIL, our budget) + record finish_reason/reasoning_tokens (85 % of a real answer's tokens were invisible reasoning). Unchecked, the agent would read silence as "insufficient data" and the 2.3 cache would replay it forever.
+- Secrets: SecretStr (masked in repr/logs); real-LLM tests behind a `llm` marker deselected by default, verified with --collect-only before spending quota.

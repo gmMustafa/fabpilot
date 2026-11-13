@@ -5,6 +5,7 @@ requires-python = ">=3.12"
 dependencies = [
     "alembic>=1.20.1",
     "fastapi>=0.162.5",
+    "openai>=3.50.0",
     "psycopg[binary]>=3.3.9",
     "pydantic-settings>=2.16.2",
     "pyyaml>=6.0.3",
@@ -29,7 +30,10 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 # Fail on typos like @pytest.mark.integraton instead of silently ignoring them.
-addopts = "--strict-markers"
+# -m "not llm": tests that call a REAL LLM never run by accident (free quota is ~50/day).
+# Run them explicitly with `uv run pytest -m llm` (a later -m on the command line wins).
+addopts = '--strict-markers -m "not llm"'
 markers = [
     "integration: needs real services (Postgres via docker compose); deselect with -m 'not integration'",
+    "llm: calls the real LLM API (uses free quota); never in CI, run manually with -m llm",
 ]
