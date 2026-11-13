@@ -9,6 +9,7 @@ from pgvector.sqlalchemy import VECTOR
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
+    Computed,
     Date,
     DateTime,
     Double,
@@ -22,7 +23,7 @@ from sqlalchemy import (
     Uuid,
     func,
 )
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -392,7 +393,11 @@ class KbChunk(Base):
     """
 
     __tablename__ = "chunks"
-    __table_args__ = (UniqueConstraint("doc_id", "ordinal"),)
+    __table_args__ = (
+        UniqueConstraint("doc_id", "ordinal"),
+        # GIN = inverted index (word -> chunks containing it): what makes `tsv @@ query` fast.
+        Index("ix_chunks_tsv", "tsv", postgresql_using="gin"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     doc_id: Mapped[str] = mapped_column(ForeignKey("documents.doc_id", ondelete="CASCADE"))
@@ -403,5 +408,11 @@ class KbChunk(Base):
     token_count: Mapped[int] = mapped_column(Integer)
     # pgvector 0.5 returns list[float] on read (older versions returned numpy arrays).
     embedding: Mapped[list[float]] = mapped_column(VECTOR(EMBEDDING_DIM))
+    # Full-text search (3.3). GENERATED ... STORED: Postgres computes it from `text` on every write,
+    # so it can never be stale or forgotten by ingestion. 'english' = stemming (clogged -> clog)
+    # and stop words; alarm codes survive intact ('press-low' + 'press' + 'low').
+    tsv: Mapped[str] = mapped_column(
+        TSVECTOR, Computed("to_tsvector('english', text)", persisted=True)
+    )
 
     document: Mapped[KbDocument] = relationship(back_populates="chunks")
