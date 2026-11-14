@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from app.db.models import Alarm, AlarmSeverity, Machine, Sensor
@@ -21,7 +21,15 @@ from app.db.models import Alarm, AlarmSeverity, Machine, Sensor
 # `X as X` = explicit re-export: routers and sensor-mcp import the errors from here.
 from app.errors import InvalidQueryError as InvalidQueryError
 from app.errors import NotFoundError as NotFoundError
-from app.schemas import AlarmOut, MachineDetail, MachineOut, ReadingBucket, ReadingsOut, SensorOut
+from app.schemas import (
+    AlarmLog,
+    AlarmOut,
+    MachineDetail,
+    MachineOut,
+    ReadingBucket,
+    ReadingsOut,
+    SensorOut,
+)
 
 MAX_POINTS = 500  # enough for any chart; protects DB, network, browser -- and an LLM's context
 DEFAULT_RANGE = timedelta(hours=24)
@@ -79,13 +87,150 @@ def resolve_range(
     return start, end
 
 
+def format_duration(td: timedelta) -> str:
+    """Exact, human, for messages the model reads: "7 d 0 h 14 min", "25 h 29 min", "14 min".
+    timedelta.days alone rounds down: "at most 7 days, got 7 days" for 7 d 14 min (F6)."""
+    minutes = int(td.total_seconds() // 60)
+    days, rest = divmod(minutes, 24 * 60)
+    hours, mins = divmod(rest, 60)
+    if days:
+        return f"{days} d {hours} h {mins} min"
+    if hours:
+        return f"{hours} h {mins} min"
+    return f"{mins} min"
+
+
+COVERAGE_TOLERANCE = timedelta(minutes=5)  # live data lags a little; don't nag about seconds
+
+
+def coverage_note(
+    start: datetime,
+    end: datetime,
+    data_starts_at: datetime | None,
+    data_ends_at: datetime | None,
+    tolerance: timedelta = COVERAGE_TOLERANCE,
+) -> str | None:
+    """One sentence for the model when the requested window [start, end) and the machine's data
+    don't match, or None when the data covers the window (within `tolerance` at both ends).
+
+    Why: an empty or short result has three possible meanings (nothing happened / machine off /
+    no data). Without this sentence a model reads "no alarms" over a window that starts after the
+    last reading as "healthy right now" (Run 3, Q3), or `cleared_at: null` as "still active" (Q2).
+
+    Cases, checked in this order:
+    1. no data at all (data_starts_at or data_ends_at is None):
+       "no readings for this machine at all: nothing can be said about it"
+    2. data ends before the window starts:
+       "the window starts after the last reading (<data_ends_at>): there is no data in it;
+        nothing can be said about this period"
+    3. data starts after the window ends:
+       "the window ends before the first reading (<data_starts_at>): there is no data in it"
+    4. otherwise one or both of these sentences, joined with " ":
+       - data ends > tolerance before `end`:
+         "data ends <data_ends_at>, <format_duration(end - data_ends_at)> before the end of the
+          window: nothing can be said about the last <same duration>."
+       - data starts > tolerance after `start`:
+         "data starts <data_starts_at>, <format_duration(data_starts_at - start)> after the start
+          of the window."
+       ... or None if neither applies.
+    Times are formatted as ISO 8601 UTC to the minute: f"{t:%Y-%m-%d %H:%M} UTC".
+    """
+
+    def fmt(t: datetime) -> str:
+        return f"{t:%Y-%m-%d %H:%M} UTC"
+
+    # Case 1: No data at all
+    if data_starts_at is None or data_ends_at is None:
+        return "no readings for this machine at all: nothing can be said about it"
+
+    # Case 2: Data ends before the requested window
+    if data_ends_at < start:
+        return (
+            f"the window starts after the last reading ({fmt(data_ends_at)}): "
+            "there is no data in it; nothing can be said about this period"
+        )
+
+    # Case 3: Data starts after the requested window
+    # >=: windows are half-open [start, end), so data starting AT `end` isn't in it either.
+    if data_starts_at >= end:
+        return (
+            f"the window ends before the first reading ({fmt(data_starts_at)}): "
+            "there is no data in it"
+        )
+
+    # Case 4: Partial coverage
+    notes = []
+
+    if end - data_ends_at > tolerance:
+        duration = format_duration(end - data_ends_at)
+        notes.append(
+            f"data ends {fmt(data_ends_at)}, {duration} before the end of the "
+            f"window: nothing can be said about the last {duration}."
+        )
+
+    if data_starts_at - start > tolerance:
+        duration = format_duration(data_starts_at - start)
+        notes.append(
+            f"data starts {fmt(data_starts_at)}, {duration} after the start of the window."
+        )
+
+    return " ".join(notes) if notes else None
+
+
+async def data_range(
+    conn: AsyncConnection, code: str | None = None
+) -> tuple[datetime | None, datetime | None]:
+    """First and last reading of one machine (or of the whole plant), from the INDEX.
+
+    One LATERAL probe per sensor on the (sensor_id, time) primary key: a few dozen index
+    lookups instead of scanning millions of rows with min()/max().
+    """
+    # f-string SQL is safe HERE: `where` is one of two fixed strings of ours; the machine code
+    # itself is still a bound parameter.
+    where = "WHERE m.code = :code" if code is not None else ""
+    row = (
+        await conn.execute(
+            text(f"""
+                SELECT min(f.time), max(l.time)
+                FROM sensors s
+                JOIN machines m ON m.id = s.machine_id
+                LEFT JOIN LATERAL (
+                    SELECT time FROM sensor_readings WHERE sensor_id = s.id ORDER BY time LIMIT 1
+                ) f ON true
+                LEFT JOIN LATERAL (
+                    SELECT time FROM sensor_readings WHERE sensor_id = s.id
+                    ORDER BY time DESC LIMIT 1
+                ) l ON true
+                {where}
+            """),
+            {"code": code} if code is not None else {},
+        )
+    ).one()
+    return row[0], row[1]
+
+
+async def _last_readings(conn: AsyncConnection) -> dict[str, datetime | None]:
+    rows = await conn.execute(
+        text("""
+            SELECT m.code, max(l.time)
+            FROM machines m JOIN sensors s ON s.machine_id = m.id
+            LEFT JOIN LATERAL (
+                SELECT time FROM sensor_readings WHERE sensor_id = s.id ORDER BY time DESC LIMIT 1
+            ) l ON true
+            GROUP BY m.code
+        """)
+    )
+    return {code: last for code, last in rows}
+
+
 async def list_machines(conn: AsyncConnection, line: str | None = None) -> list[MachineOut]:
     """All machines (optionally of one line), ordered by code."""
     query = select(Machine.__table__).order_by(Machine.code)
     if line is not None:
         query = query.where(Machine.line == line)
     rows = (await conn.execute(query)).mappings().all()
-    return [MachineOut.model_validate(r) for r in rows]
+    last = await _last_readings(conn)
+    return [MachineOut.model_validate({**r, "last_reading_at": last.get(r["code"])}) for r in rows]
 
 
 async def _machine(conn: AsyncConnection, code: str) -> Machine:
@@ -103,8 +248,10 @@ async def get_machine(conn: AsyncConnection, code: str) -> MachineDetail:
             select(Sensor.__table__).where(Sensor.machine_id == machine.id).order_by(Sensor.id)
         )
     ).mappings()
+    _, last = await data_range(conn, code)
     return MachineDetail(
-        **MachineOut.model_validate(machine).model_dump(),
+        **MachineOut.model_validate(machine).model_dump(exclude={"last_reading_at"}),
+        last_reading_at=last,
         sensors=[SensorOut.model_validate(s) for s in sensors],
     )
 
@@ -174,6 +321,7 @@ async def get_readings(
         ).scalars()
         raise NotFoundError(f"machine {code!r} has no sensor {sensor!r}; it has: {sorted(names)}")
     points = await fetch_buckets(conn, spec.id, start, end, chosen.interval)
+    first, last = await data_range(conn, code)
     return ReadingsOut(
         machine=code,
         sensor=sensor,
@@ -182,6 +330,8 @@ async def get_readings(
         start=start,
         end=end,
         points=points,
+        data_ends_at=last,
+        coverage_note=coverage_note(start, end, first, last),
     )
 
 
@@ -219,8 +369,8 @@ def validate_alarm_query(
     # hint changes with it. "got X" + "allowed Y" lets the model correct itself in one retry.
     if (end - start) > MAX_ALARM_RANGE:
         raise InvalidQueryError(
-            f"alarm range too long: at most {MAX_ALARM_RANGE.days} days, "
-            f"got {(end - start).days} days; narrow start/end or query several windows"
+            f"alarm range too long: at most {format_duration(MAX_ALARM_RANGE)}, "
+            f"got {format_duration(end - start)}; narrow start/end or query several windows"
         )
 
     if not 1 <= limit <= MAX_ALARMS:
@@ -247,36 +397,48 @@ def validate_alarm_query(
     )
 
 
-async def get_alarm_log(
-    conn: AsyncConnection, code: str | None, query: AlarmQuery
-) -> list[AlarmOut]:
-    """Alarms raised in [start, end), newest first, at least `min_severity`, at most `limit`.
+async def get_alarm_log(conn: AsyncConnection, code: str | None, query: AlarmQuery) -> AlarmLog:
+    """Alarms raised in [start, end), newest first, at least `min_severity`, at most `limit`,
+    plus how many matched in TOTAL: a list cut at `limit` must say so (F12: a truncated list,
+    newest first, silently loses the EARLIEST alarms, i.e. when the problem started).
 
     code=None: all machines (plant-wide view: "which lines alarmed around 03:10?").
     """
-    stmt = (
-        select(
-            Alarm.time,
-            Alarm.cleared_at,
-            Alarm.code,
-            Alarm.severity,
-            Alarm.message,
-            Machine.code.label("machine"),
-            Sensor.name.label("sensor"),
-        )
+    columns = (
+        Alarm.time,
+        Alarm.cleared_at,
+        Alarm.code,
+        Alarm.severity,
+        Alarm.message,
+        Machine.code.label("machine"),
+        Sensor.name.label("sensor"),
+    )
+    base = (
+        select(*columns)
         .join(Machine, Machine.id == Alarm.machine_id)
         .outerjoin(Sensor, Sensor.id == Alarm.sensor_id)  # machine-level alarms have no sensor
         .where(Alarm.time >= query.start, Alarm.time < query.end)
-        .order_by(Alarm.time.desc(), Alarm.id.desc())
-        .limit(query.limit)
     )
     if code is not None:
-        stmt = stmt.where(Machine.id == (await _machine(conn, code)).id)
+        base = base.where(Machine.id == (await _machine(conn, code)).id)
     if query.min_severity is not None:
         allowed = _SEVERITY_ORDER[_SEVERITY_ORDER.index(query.min_severity) :]
-        stmt = stmt.where(Alarm.severity.in_(allowed))
-    rows = (await conn.execute(stmt)).mappings().all()
-    return [AlarmOut.model_validate(r) for r in rows]
+        base = base.where(Alarm.severity.in_(allowed))
+    total = (await conn.execute(select(func.count()).select_from(base.subquery()))).scalar_one()
+    rows = (
+        await conn.execute(base.order_by(Alarm.time.desc(), Alarm.id.desc()).limit(query.limit))
+    ).mappings()
+    alarms = [AlarmOut.model_validate(r) for r in rows]
+    first, last = await data_range(conn, code)
+    return AlarmLog(
+        start=query.start,
+        end=query.end,
+        total_count=total,
+        truncated=total > len(alarms),
+        alarms=alarms,
+        data_ends_at=last,
+        coverage_note=coverage_note(query.start, query.end, first, last),
+    )
 
 
 MAX_ANOMALY_RANGE = timedelta(days=7)
@@ -294,8 +456,8 @@ async def minute_means(
     start, end = resolve_range(start, end, default=ANOMALY_DEFAULT_RANGE)
     if end - start > MAX_ANOMALY_RANGE:
         raise InvalidQueryError(
-            f"anomaly window too long: at most {MAX_ANOMALY_RANGE.days} days, "
-            f"got {(end - start).days} days; analyse the days around the incident"
+            f"anomaly window too long: at most {format_duration(MAX_ANOMALY_RANGE)}, "
+            f"got {format_duration(end - start)}; analyse the days around the incident"
         )
     machine = await get_machine(conn, code)
     rows = await conn.execute(

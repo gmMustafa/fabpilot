@@ -162,7 +162,7 @@ async def test_get_readings_aggregates(client: OneShotClient) -> None:
 
 async def test_alarm_log_plant_wide_newest_first(client: OneShotClient) -> None:
     args = {"start": "2026-11-16T08:00:00Z", "end": "2026-11-16T09:00:00Z"}
-    alarms = (await _call(client, "get_alarm_log", args))["result"]
+    alarms = (await _call(client, "get_alarm_log", args))["alarms"]
     assert [a["code"] for a in alarms] == [
         "PRESS-HIGH",
         "TEMP-HIGH",
@@ -176,12 +176,64 @@ async def test_alarm_log_plant_wide_newest_first(client: OneShotClient) -> None:
 
 async def test_alarm_log_filters(client: OneShotClient) -> None:
     base = {"start": "2026-11-16T08:00:00Z", "end": "2026-11-16T09:00:00Z"}
-    m01 = (await _call(client, "get_alarm_log", {**base, "machine": "M-01"}))["result"]
-    crit = (await _call(client, "get_alarm_log", {**base, "min_severity": "CRITICAL"}))["result"]
-    two = (await _call(client, "get_alarm_log", {**base, "limit": 2}))["result"]
+    m01 = (await _call(client, "get_alarm_log", {**base, "machine": "M-01"}))["alarms"]
+    crit = (await _call(client, "get_alarm_log", {**base, "min_severity": "CRITICAL"}))["alarms"]
+    two = (await _call(client, "get_alarm_log", {**base, "limit": 2}))["alarms"]
     assert {a["machine"] for a in m01} == {"M-01"} and len(m01) == 3
     assert {a["code"] for a in crit} == {"VIB-CRIT", "TRIP"}
     assert [a["code"] for a in two] == ["PRESS-HIGH", "TEMP-HIGH"]
+
+
+# ------------------------------------------------------------------ completeness (4.4a)
+
+
+async def test_a_cut_alarm_list_says_so(client: OneShotClient) -> None:
+    """F12: newest first + limit silently lost the EARLIEST alarms, i.e. the onset."""
+    base = {"start": "2026-11-16T08:00:00Z", "end": "2026-11-16T09:00:00Z"}
+    cut = await _call(client, "get_alarm_log", {**base, "limit": 2})
+    full = await _call(client, "get_alarm_log", base)
+    assert (cut["total_count"], cut["truncated"], len(cut["alarms"])) == (5, True, 2)
+    assert (full["total_count"], full["truncated"]) == (5, False)
+
+
+async def test_limit_range_is_in_the_schema(client: OneShotClient) -> None:
+    """F5: the client sees 1-200 BEFORE calling, instead of learning it from a rejected call."""
+    tools = {t.name: t for t in (await client.list_tools()).tools}
+    limit = tools["get_alarm_log"].input_schema["properties"]["limit"]
+    assert (limit["minimum"], limit["maximum"]) == (1, 200)
+
+
+async def test_window_after_the_data_says_nothing_can_be_said(client: OneShotClient) -> None:
+    """Run 3, Q3: 'no alarms' over a window with no data was read as 'healthy right now'."""
+    r = await _call(
+        client,
+        "get_alarm_log",
+        {"machine": "M-01", "start": "2026-11-17T00:00:00Z", "end": "2026-11-18T00:00:00Z"},
+    )
+    assert r["alarms"] == [] and r["data_ends_at"].startswith("2026-11-16T09:59")
+    assert "starts after the last reading" in r["coverage_note"]
+
+
+async def test_readings_report_where_the_data_ends(client: OneShotClient) -> None:
+    args = {
+        "machine": "M-01",
+        "sensor": "spindle_bearing_temp",
+        "start": "2026-11-16T08:00:00Z",
+        "end": "2026-11-16T12:00:00Z",
+        "bucket": "1h",
+    }
+    r = await _call(client, "get_readings", args)
+    assert len(r["points"]) == 2  # 08:00 and 09:00; 10:00 and 11:00 have no data
+    assert r["coverage_note"].startswith("data ends 2026-11-16 09:59 UTC")
+
+
+async def test_machines_report_their_newest_reading(client: OneShotClient) -> None:
+    """F10: status alone ('running') looked live on a feed that was a day old."""
+    m01 = await _call(client, "get_machine", {"machine": "M-01"})
+    assert m01["last_reading_at"].startswith("2026-11-16T09:59:50")
+    every = {m["code"]: m for m in (await _call(client, "list_machines", {}))["result"]}
+    assert every["M-01"]["last_reading_at"].startswith("2026-11-16T09:59:50")
+    assert every["M-02"]["last_reading_at"] is None  # never reported anything
 
 
 async def _write_drifting_compressor(db_url: str) -> None:
@@ -230,11 +282,18 @@ async def test_detect_anomalies_reports_an_isolated_drift(
         "motor_vibration",
         "inlet_filter_dp",
     }
+    # F3 / F13: a 24/7 machine never stops, so the standstill check COULDN'T run; and every
+    # minute of the window is accounted for.
+    assert "moves_when_stopped" in {c["check"] for c in r["checks_not_possible"]}
+    assert (r["minutes_running"], r["minutes_stopped"], r["minutes_no_data"]) == (2880, 0, 0)
+    assert r["coverage_note"] is None
 
 
 async def test_detect_anomalies_explains_bad_windows(client: OneShotClient) -> None:
     too_long = {"machine": "M-08", "start": "2026-11-01T00:00:00Z", "end": "2026-11-16T00:00:00Z"}
-    assert "7 days" in await _error(client, "detect_anomalies", too_long)
+    assert "at most 7 d 0 h 0 min, got 15 d 0 h 0 min" in await _error(
+        client, "detect_anomalies", too_long
+    )  # F6: exact, never "at most 7 days, got 7 days"
     empty = {"machine": "M-08", "start": "2026-10-01T00:00:00Z", "end": "2026-10-02T00:00:00Z"}
     assert "no readings" in await _error(client, "detect_anomalies", empty)
 
@@ -259,7 +318,7 @@ async def test_schema_rejects_malformed_codes_before_any_query(client: OneShotCl
         ({"start": "2026-11-16T08:00:00"}, "timezone"),
         ({"start": "2026-11-16T09:00:00Z", "end": "2026-11-16T08:00:00Z"}, "after"),
         ({"start": "2026-01-01T00:00:00Z", "end": "2026-11-16T00:00:00Z"}, "31"),
-        ({"limit": 0}, "200"),
+        ({"limit": 0}, "greater than or equal to 1"),  # now rejected by the schema (F5)
         ({"limit": 5000}, "200"),
         ({"min_severity": "urgent"}, "critical"),
     ],

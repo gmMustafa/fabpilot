@@ -32,8 +32,8 @@ from app import plant_data
 from app.config import get_settings
 from app.db.session import create_engine
 from app.plant_data import Bucket, InvalidQueryError, NotFoundError
-from app.schemas import AlarmOut, MachineDetail, MachineOut, ReadingsOut
-from sensor_mcp.anomaly import Finding, Series, analyze
+from app.schemas import AlarmLog, MachineDetail, MachineOut, ReadingsOut
+from sensor_mcp.anomaly import CheckNotPossible, Finding, Series, analyze
 
 logger = logging.getLogger("sensor_mcp")
 
@@ -80,8 +80,9 @@ def create_server(make_engine: Callable[[], AsyncEngine] | None = None) -> MCPSe
     ) -> list[MachineOut]:
         """List the plant's machines with code, name, line, type and current status.
 
-        Start here to find a machine's code. Status is the live operating state
-        (running / idle / stopped / down)."""
+        Start here to find a machine's code. `status` is the state as last REPORTED; compare
+        `last_reading_at` with the current time before treating it as live (a stale feed keeps
+        its last status)."""
         async with ctx.request_context.lifespan_context.engine.connect() as conn:
             return await plant_data.list_machines(conn, line)
 
@@ -109,8 +110,11 @@ def create_server(make_engine: Callable[[], AsyncEngine] | None = None) -> MCPSe
     ) -> ReadingsOut:
         """Readings of ONE sensor aggregated into time buckets (avg, min, max, count per bucket).
 
-        min/max keep short spikes visible that the average hides. Missing buckets mean no data
-        (machine off). Raw resolution is 10 s; long ranges are aggregated to at most 500 points."""
+        min/max keep short spikes visible that the average hides. A missing bucket means no
+        readings arrived: the machine was off OR the data feed stopped. `data_ends_at` (the
+        machine's newest reading) and `coverage_note` tell which: read them before concluding
+        anything about the end of the window. Raw resolution is 10 s; long ranges are
+        aggregated to at most 500 points."""
         with _as_tool_errors():
             async with ctx.request_context.lifespan_context.engine.connect() as conn:
                 return await plant_data.get_readings(conn, machine, sensor, start, end, bucket)
@@ -127,13 +131,24 @@ def create_server(make_engine: Callable[[], AsyncEngine] | None = None) -> MCPSe
         min_severity: Annotated[
             str | None, Field(description="'info', 'warning' or 'critical'. Default: all")
         ] = None,
-        limit: Annotated[int, Field(description="Max alarms returned, newest first")] = 50,
-    ) -> list[AlarmOut]:
+        limit: Annotated[
+            int,
+            Field(
+                ge=1,
+                le=plant_data.MAX_ALARMS,
+                description=f"Max alarms returned, newest first (1-{plant_data.MAX_ALARMS})",
+            ),
+        ] = 50,
+    ) -> AlarmLog:
         """Alarms the machine controllers raised in a time range, newest first.
 
         Each alarm has its code (e.g. VIB-HIGH, PRESS-LOW, TRIP), the sensor it came from (none
-        for machine-level alarms like TRIP), and cleared_at (null = still active). Omit `machine`
-        to see the whole plant: alarms on several machines at once point at a shared cause."""
+        for machine-level alarms like TRIP), and cleared_at. `total_count` is how many matched;
+        if `truncated` is true, only the newest `limit` are listed and the EARLIEST are missing:
+        don't read the oldest listed alarm as the onset (narrow the window or raise `limit`).
+        cleared_at null means "not cleared before the data ended" (see `data_ends_at`), not
+        necessarily "active now". Omit `machine` to see the whole plant: alarms on several
+        machines at once can point at a shared cause, but check that the causes really match."""
         with _as_tool_errors():
             query = plant_data.validate_alarm_query(start, end, limit, min_severity)
             async with ctx.request_context.lifespan_context.engine.connect() as conn:
@@ -156,11 +171,15 @@ def create_server(make_engine: Callable[[], AsyncEngine] | None = None) -> MCPSe
         changes while the machine is off and settled: typical of a faulty sensor),
         current_up_speed_down (the overload signature). `isolated` = no other sensor of the
         machine changed. quiet_sensors lists sensors without findings: compare them, a real
-        machine fault rarely shows on one signal only. Findings are facts, not diagnoses."""
+        machine fault rarely shows on one signal only. Findings are facts, not diagnoses.
+        Completeness: checks_not_possible lists checks the data didn't allow (a missing finding
+        there is NOT evidence); minutes_no_data and coverage_note say how much of the window
+        had no readings at all."""
         with _as_tool_errors():
             async with ctx.request_context.lifespan_context.engine.connect() as conn:
                 detail, start_, end_, raw = await plant_data.minute_means(conn, machine, start, end)
-            return _analyze(detail, start_, end_, raw)
+                first, last = await plant_data.data_range(conn, machine)
+            return _analyze(detail, start_, end_, raw, first, last)
 
     return server
 
@@ -169,9 +188,17 @@ class AnomalyReport(BaseModel):
     machine: str
     start: datetime
     end: datetime
-    minutes_analyzed: int
+    # The window's minutes, split by what we know about them (Run 3, F13: a model explained the
+    # missing minutes of a stale feed as "the machine was stopped"):
+    minutes_analyzed: int  # every sensor had a value (= running + stopped)
+    minutes_running: int
+    minutes_stopped: int
+    minutes_no_data: int  # no readings at all: nothing can be said about these
+    data_ends_at: datetime | None
+    coverage_note: str | None
     findings: list[Finding]
     quiet_sensors: list[str]  # no finding: as informative as a finding for a false alarm
+    checks_not_possible: list[CheckNotPossible]
 
 
 def _analyze(
@@ -179,12 +206,15 @@ def _analyze(
     start: datetime,
     end: datetime,
     raw: dict[str, list[tuple[datetime, float]]],
+    data_starts_at: datetime | None,
+    data_ends_at: datetime | None,
 ) -> AnomalyReport:
     """DB rows -> aligned Series -> findings. Sensors can have gaps (machine off, data loss), so
     only the minutes where EVERY sensor has a value are analysed: the detectors compare sensors
     minute by minute and need one shared time grid."""
+    note = plant_data.coverage_note(start, end, data_starts_at, data_ends_at)
     if not raw:
-        raise InvalidQueryError(f"no readings for {detail.code} between {start} and {end}")
+        raise InvalidQueryError(f"no readings for {detail.code} in this window: {note}")
     shared = set.intersection(*(set(t for t, _ in rows) for rows in raw.values()))
     if len(shared) < 120:
         raise InvalidQueryError(
@@ -207,15 +237,22 @@ def _analyze(
                 np.array([by_time[t] for t in grid], dtype=float),
             )
         )
-    findings = analyze(series)
-    flagged = {f.sensor for f in findings}
+    result = analyze(series)
+    flagged = {f.sensor for f in result.findings}
+    window_minutes = int((end - start).total_seconds() // 60)
     return AnomalyReport(
         machine=detail.code,
         start=start,
         end=end,
         minutes_analyzed=len(grid),
-        findings=findings,
+        minutes_running=result.minutes_running,
+        minutes_stopped=result.minutes_stopped,
+        minutes_no_data=max(window_minutes - len(grid), 0),
+        data_ends_at=data_ends_at,
+        coverage_note=note,
+        findings=result.findings,
         quiet_sensors=[s.name for s in detail.sensors if s.name not in flagged],
+        checks_not_possible=result.checks_not_possible,
     )
 
 

@@ -355,9 +355,27 @@ def _drop_load_changes(
     return [f for f in findings if f.kind is not FindingKind.SPIKE or not is_load_change(f)]
 
 
-def analyze(series: Sequence[Series]) -> list[Finding]:
-    """All findings for one machine, sorted by sensor and kind. Needs the machine's current
-    sensor (kind CURRENT) to infer when it ran."""
+class CheckNotPossible(BaseModel):
+    check: FindingKind
+    reason: str
+
+
+class Analysis(BaseModel):
+    findings: list[Finding]
+    minutes_running: int
+    minutes_stopped: int
+    # A check that COULDN'T run is not a check that found nothing (Run 2/3, F3): a model read the
+    # missing moves_when_stopped on a 24/7 compressor as evidence against drift.
+    checks_not_possible: list[CheckNotPossible]
+
+
+TREND_MIN_STEADY = 8 * 60  # minutes of steady running a trend needs (see trend())
+STOPPED_MIN_SETTLED = 4 * 60  # minutes of settled standstill moves_when_stopped needs
+
+
+def analyze(series: Sequence[Series]) -> Analysis:
+    """All findings for one machine, sorted by sensor and kind, plus what couldn't be checked.
+    Needs the machine's current sensor (kind CURRENT) to infer when it ran."""
     current = next((s for s in series if s.kind is SensorKind.CURRENT), None)
     if current is None:
         raise ValueError("analyze() needs the machine's current sensor to infer its state")
@@ -377,8 +395,40 @@ def analyze(series: Sequence[Series]) -> list[Finding]:
     findings = _drop_load_changes(findings, current, speed)
     if speed is not None:
         findings += current_up_speed_down(current, speed, steady)
+
+    not_possible = []
+    if int(steady.sum()) < TREND_MIN_STEADY:
+        not_possible.append(
+            CheckNotPossible(
+                check=FindingKind.TREND,
+                reason=f"only {int(steady.sum())} min of steady running in the window "
+                f"(needs {TREND_MIN_STEADY}): no trend can be judged",
+            )
+        )
+    if int(settled_stop.sum()) < STOPPED_MIN_SETTLED:
+        not_possible.append(
+            CheckNotPossible(
+                check=FindingKind.MOVES_WHEN_STOPPED,
+                reason=f"only {int(settled_stop.sum())} min of settled standstill in the window "
+                f"(needs {STOPPED_MIN_SETTLED}): a lying sensor can't be told from the process "
+                "this way; no finding here is NOT evidence against sensor drift",
+            )
+        )
+    if speed is None:
+        not_possible.append(
+            CheckNotPossible(
+                check=FindingKind.CURRENT_UP_SPEED_DOWN,
+                reason="this machine type has no speed sensor",
+            )
+        )
+
     flagged = {f.sensor for f in findings}
-    return sorted(
-        (f.model_copy(update={"isolated": flagged == {f.sensor}}) for f in findings),
-        key=lambda f: (f.sensor, f.kind.value, f.start),
+    return Analysis(
+        findings=sorted(
+            (f.model_copy(update={"isolated": flagged == {f.sensor}}) for f in findings),
+            key=lambda f: (f.sensor, f.kind.value, f.start),
+        ),
+        minutes_running=int(running.sum()),
+        minutes_stopped=int((~running).sum()),
+        checks_not_possible=not_possible,
     )

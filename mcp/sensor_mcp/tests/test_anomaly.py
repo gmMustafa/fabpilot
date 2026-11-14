@@ -97,7 +97,7 @@ def test_zscore_rejects_bad_parameters(window: int, scale: float) -> None:
 
 @pytest.mark.parametrize("code", [f"M-{i:02d}" for i in range(1, 11)])
 def test_a_healthy_week_produces_no_findings(plant: PlantConfig, code: str) -> None:
-    assert analyze(_series(plant, code, MONDAY, days=7)) == []
+    assert analyze(_series(plant, code, MONDAY, days=7)).findings == []
 
 
 # ------------------------------------------------------------------ faults: found
@@ -105,7 +105,7 @@ def test_a_healthy_week_produces_no_findings(plant: PlantConfig, code: str) -> N
 
 def test_bearing_wear_shows_as_a_vibration_trend(plant: PlantConfig) -> None:
     f = Fault(FaultType.BEARING_WEAR, "M-01", MONDAY, MONDAY + timedelta(days=2, hours=18))
-    findings = analyze(_series(plant, "M-01", MONDAY, days=3, faults=[f]))
+    findings = analyze(_series(plant, "M-01", MONDAY, days=3, faults=[f])).findings
     vib = _of(findings, "spindle_vibration", FindingKind.TREND)
     assert vib and vib[0].magnitude > 0
 
@@ -115,7 +115,7 @@ def test_drift_on_a_24_7_machine_is_an_isolated_trend(plant: PlantConfig) -> Non
     f = Fault(
         FaultType.SENSOR_DRIFT, "M-08", MONDAY, MONDAY + timedelta(days=2), sensor="discharge_temp"
     )
-    findings = analyze(_series(plant, "M-08", MONDAY, days=2, faults=[f]))
+    findings = analyze(_series(plant, "M-08", MONDAY, days=2, faults=[f])).findings
     assert {x.sensor for x in findings} == {"discharge_temp"}  # neighbours stay quiet
     trend = _of(findings, "discharge_temp", FindingKind.TREND)
     assert trend and trend[0].isolated and trend[0].magnitude > 0
@@ -129,14 +129,14 @@ def test_drift_on_a_shift_machine_moves_while_stopped(plant: PlantConfig) -> Non
         MONDAY + timedelta(days=3),
         sensor="spindle_bearing_temp",
     )
-    findings = analyze(_series(plant, "M-01", MONDAY, days=4, faults=[f]))
+    findings = analyze(_series(plant, "M-01", MONDAY, days=4, faults=[f])).findings
     assert _of(findings, "spindle_bearing_temp", FindingKind.MOVES_WHEN_STOPPED)
     assert {x.sensor for x in findings} == {"spindle_bearing_temp"}
 
 
 def test_clogged_filter_moves_several_signals_so_nothing_is_isolated(plant: PlantConfig) -> None:
     f = Fault(FaultType.CLOGGED_FILTER, "M-08", MONDAY, MONDAY + timedelta(days=2))
-    findings = analyze(_series(plant, "M-08", MONDAY, days=2, faults=[f]))
+    findings = analyze(_series(plant, "M-08", MONDAY, days=2, faults=[f])).findings
     assert _of(findings, "inlet_filter_dp", FindingKind.TREND)
     assert len({x.sensor for x in findings}) >= 2
     assert not any(x.isolated for x in findings)
@@ -145,7 +145,7 @@ def test_clogged_filter_moves_several_signals_so_nothing_is_isolated(plant: Plan
 def test_coolant_pump_failure_drops_coolant_pressure_out_of_band(plant: PlantConfig) -> None:
     start = MONDAY + timedelta(hours=9)  # mid-shift, the machine has been running for hours
     f = Fault(FaultType.COOLANT_PUMP_FAILURE, "M-01", start, start + timedelta(minutes=30))
-    findings = analyze(_series(plant, "M-01", MONDAY, days=1, faults=[f]))
+    findings = analyze(_series(plant, "M-01", MONDAY, days=1, faults=[f])).findings
     low = _of(findings, "coolant_pressure", FindingKind.OUT_OF_BAND)
     assert low and low[0].magnitude < 0
 
@@ -158,12 +158,12 @@ def test_motor_overload_shows_the_current_up_speed_down_signature(
 ) -> None:
     start = MONDAY + timedelta(hours=8)
     f = Fault(FaultType.MOTOR_OVERLOAD, code, start, start + timedelta(hours=2))
-    findings = analyze(_series(plant, code, MONDAY, days=1, faults=[f]))
+    findings = analyze(_series(plant, code, MONDAY, days=1, faults=[f])).findings
     assert _of(findings, current, FindingKind.CURRENT_UP_SPEED_DOWN)
 
 
 def test_belt_slippage_shows_on_the_roller_speed(plant: PlantConfig) -> None:
     start = MONDAY + timedelta(hours=8)
     f = Fault(FaultType.BELT_SLIPPAGE, "M-04", start, start + timedelta(hours=4))
-    findings = analyze(_series(plant, "M-04", MONDAY, days=1, faults=[f]))
+    findings = analyze(_series(plant, "M-04", MONDAY, days=1, faults=[f])).findings
     assert _of(findings, "drive_roller_speed")

@@ -28,8 +28,9 @@ class MachineOut(_Out):
     name: str
     line: str
     type: MachineType
-    status: MachineStatus
+    status: MachineStatus  # as last reported: compare with last_reading_at before trusting it
     install_date: date
+    last_reading_at: datetime | None = None  # newest reading of any sensor; None = never
 
 
 class MachineDetail(MachineOut):
@@ -54,6 +55,8 @@ class ReadingsOut(_Out):
     start: datetime
     end: datetime
     points: list[ReadingBucket]
+    data_ends_at: datetime | None = None  # the machine's newest reading (any sensor)
+    coverage_note: str | None = None  # set when the window and the data don't match
 
 
 class AlarmOut(_Out):
@@ -64,6 +67,16 @@ class AlarmOut(_Out):
     code: str  # e.g. "VIB-HIGH"
     severity: AlarmSeverity
     message: str
+
+
+class AlarmLog(_Out):
+    start: datetime
+    end: datetime
+    total_count: int  # alarms matching the filters in the window, before `limit`
+    truncated: bool  # True: only the newest `limit` are in `alarms`; the earliest are missing
+    alarms: list[AlarmOut]
+    data_ends_at: datetime | None = None
+    coverage_note: str | None = None
 
 
 class StatsTotals(_Out):
