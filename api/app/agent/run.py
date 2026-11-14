@@ -20,7 +20,7 @@ import asyncio
 import logging
 import sys
 import uuid
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from langgraph.checkpoint.base import BaseCheckpointSaver
@@ -30,7 +30,7 @@ from app.agent.checkpoint import postgres_checkpointer
 from app.agent.graph import Graph, build_graph, pending_approval, resume, run_question, thread
 from app.agent.state import AgentState, Approval, WorkOrderDraft
 from app.agent.store import SqlWorkOrderStore
-from app.agent.tools import McpTools, Server
+from app.agent.tools import McpTools, NoTools
 from app.config import get_settings
 from app.db.models import WorkOrderPriority
 from app.db.session import create_engine
@@ -122,14 +122,6 @@ async def decide(graph: Graph, thread_id: str, read: Read = console_read) -> Age
             return state
         state = await resume(graph, approval, thread_id)
     return state
-
-
-class NoTools:
-    """For --resume: only await_approval and save_work_order run again, and neither calls a tool.
-    So no MCP server is started, and a call would be a bug: fail loudly."""
-
-    async def call(self, server: Server, tool: str, args: Mapping[str, Any]) -> dict[str, Any]:
-        raise RuntimeError(f"resuming a paused run must not call {server}.{tool}")
 
 
 async def list_pending(

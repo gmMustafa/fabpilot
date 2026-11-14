@@ -118,6 +118,9 @@ class Evidence(BaseModel):
 
 class AgentState(BaseModel):
     question: str
+    # Set when the run investigates an incident (6.1): its work order attaches to it, and the
+    # incident's machine is known, so triage doesn't guess it from the question.
+    incident_id: int | None = None
     # triage
     machine: str | None = None
     intent: Intent = Intent.DIAGNOSE

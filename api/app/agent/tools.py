@@ -93,3 +93,12 @@ class FakeTools:
         if isinstance(answer, ToolCallError):
             raise answer
         return answer(args) if callable(answer) else answer
+
+
+class NoTools:
+    """For reading or resuming a paused run (CLI --resume, the API's GET /runs): only
+    await_approval and save_work_order run again, and neither calls a tool. So no MCP server
+    is started, and a call would be a bug: fail loudly."""
+
+    async def call(self, server: Server, tool: str, args: Mapping[str, Any]) -> dict[str, Any]:
+        raise RuntimeError(f"resuming a paused run must not call {server}.{tool}")

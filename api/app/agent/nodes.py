@@ -59,6 +59,9 @@ async def triage(
     """Which machine, which kind of question. Regex and keyword rules first: "M-08" is a pattern,
     not a judgement, and every request we don't make is one of ~50 a day saved. The LLM is asked
     only when the question names no machine code ("the central coolant pump")."""
+    if state.machine is not None:  # from the incident (6.1): known, not guessed
+        # Returned although unchanged: the step event (the UI) then shows WHICH machine.
+        return {"machine": state.machine, "intent": rule_intent(state.question)}
     found = _MACHINE.search(state.question)
     if found:
         return {"machine": found.group(0), "intent": rule_intent(state.question)}

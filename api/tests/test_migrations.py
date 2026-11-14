@@ -18,6 +18,7 @@ EXPECTED_TABLES = {
     "llm_cache",
     "documents",
     "chunks",
+    "agent_runs",
 }
 
 pytestmark = pytest.mark.integration

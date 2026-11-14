@@ -47,6 +47,7 @@ def decision(**kw: object) -> Decision:
         "at": NOW,
         "note": None,
         "thread_id": "run-1",
+        "incident_id": None,
     }
     return Decision(**{**base, **kw})  # type: ignore[arg-type]
 

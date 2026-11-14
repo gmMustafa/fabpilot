@@ -14,12 +14,22 @@ insert (rollback, an ERROR in the Postgres log, burned sequence numbers). Layer 
 path, layer 2 the rare one.
 """
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from app.agent.approval import Decision
-from app.db.models import Incident, IncidentStatus, Machine, WorkOrder, WorkOrderStatus
+from app.agent.service import IncidentRef
+from app.agent.state import AgentState
+from app.db.models import (
+    AgentRun,
+    Incident,
+    IncidentStatus,
+    Machine,
+    RunStatus,
+    WorkOrder,
+    WorkOrderStatus,
+)
 from app.errors import NotFoundError
 
 
@@ -64,12 +74,19 @@ class SqlWorkOrderStore:
             if machine_id is None:
                 raise NotFoundError(f"machine {decision.machine!r} does not exist")
 
-            incident = Incident(
-                title=decision.question[:200],
-                machine_id=machine_id,
-                status=IncidentStatus.OPEN,  # open until the work is DONE, approval doesn't fix it
-                root_cause=decision.root_cause,
-            )
+            incident: Incident | None = None
+            if decision.incident_id is not None:  # a run of an existing incident (6.1)
+                incident = await session.get(Incident, decision.incident_id)
+                if incident is None:
+                    raise NotFoundError(f"incident {decision.incident_id} does not exist")
+                incident.root_cause = decision.root_cause  # the decided diagnosis, kept on it
+            if incident is None:  # the CLI: no incident yet, the decision creates one
+                incident = Incident(
+                    title=decision.question[:200],
+                    machine_id=machine_id,
+                    status=IncidentStatus.OPEN,  # open until the work is DONE, not on approval
+                    root_cause=decision.root_cause,
+                )
             d = decision.draft
             work_order = WorkOrder(
                 incident=incident,
@@ -87,3 +104,44 @@ class SqlWorkOrderStore:
             session.add(work_order)
             await session.flush()  # assigns the id inside the transaction
             return work_order.id
+
+
+class SqlAgentRepo(SqlWorkOrderStore):
+    """The AgentService's database side (6.1): incidents, the agent_runs log, and (inherited)
+    the idempotent work-order save."""
+
+    async def create_incident(self, machine: str, question: str) -> int:
+        async with self._sessions.begin() as session:
+            machine_id = await session.scalar(select(Machine.id).where(Machine.code == machine))
+            if machine_id is None:
+                raise NotFoundError(f"machine {machine!r} does not exist")
+            incident = Incident(title=question, machine_id=machine_id)
+            session.add(incident)
+            await session.flush()
+            return incident.id
+
+    async def incident(self, incident_id: int) -> IncidentRef | None:
+        async with self._sessions() as session:
+            row = (
+                await session.execute(
+                    select(Machine.code, Incident.title)
+                    .join(Machine, Machine.id == Incident.machine_id)
+                    .where(Incident.id == incident_id)
+                )
+            ).first()
+        return IncidentRef(machine=row.code, question=row.title) if row else None
+
+    async def run_started(self, thread_id: str, incident_id: int) -> None:
+        async with self._sessions.begin() as session:
+            session.add(AgentRun(thread_id=thread_id, incident_id=incident_id))
+
+    async def run_finished(
+        self, thread_id: str, status: RunStatus, state: AgentState | None, error: str | None
+    ) -> None:
+        async with self._sessions.begin() as session:
+            run = await session.get_one(AgentRun, thread_id)
+            run.status, run.error, run.finished_at = status, error, func.now()
+            if state is not None:
+                run.llm_requests = state.llm_requests
+                run.llm_attempts = state.llm_attempts
+                run.llm_tokens = state.llm_tokens

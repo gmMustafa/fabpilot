@@ -75,6 +75,14 @@ class WorkOrderPriority(StrEnum):
     URGENT = "urgent"
 
 
+class RunStatus(StrEnum):
+    # An agent run (6.1): running -> paused (a draft waits for a human) or done or failed.
+    RUNNING = "running"
+    PAUSED = "paused"
+    DONE = "done"
+    FAILED = "failed"
+
+
 class WorkOrderStatus(StrEnum):
     # Brief: draft -> approved -> done. Plus "rejected": the human-in-the-loop step (5.3) can say
     # no, and that outcome is worth keeping (evals, audit) rather than deleting the draft.
@@ -273,6 +281,31 @@ class WorkOrder(Base):
     review_note: Mapped[str | None] = mapped_column(Text)
 
     incident: Mapped[Incident] = relationship(back_populates="work_orders")
+
+
+class AgentRun(Base):
+    """One investigation of an incident (6.1): the link from an incident to its LangGraph thread.
+
+    The checkpointer holds the run's full STATE; this row is what the API and the dashboard
+    LIST and filter (status, cost, when), and what Phase 8 evals aggregate, without unpacking
+    checkpoints.
+    """
+
+    __tablename__ = "agent_runs"
+
+    thread_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    incident_id: Mapped[int] = mapped_column(ForeignKey("incidents.id"), index=True)
+    status: Mapped[RunStatus] = mapped_column(
+        str_enum(RunStatus, "status"),
+        default=RunStatus.RUNNING,
+        server_default=RunStatus.RUNNING.value,
+    )
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    llm_requests: Mapped[int] = mapped_column(default=0, server_default="0")
+    llm_attempts: Mapped[int] = mapped_column(default=0, server_default="0")
+    llm_tokens: Mapped[int] = mapped_column(default=0, server_default="0")
+    error: Mapped[str | None] = mapped_column(Text)  # why it FAILED (a crash, not an LLM refusal)
 
 
 class FaultInjection(Base):

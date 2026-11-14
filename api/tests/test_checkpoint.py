@@ -8,8 +8,9 @@ from alembic.config import Config
 
 from app.agent.checkpoint import libpq_url, postgres_checkpointer
 from app.agent.graph import build_graph, pending_approval, resume, run_question
-from app.agent.run import NoTools, list_pending
+from app.agent.run import list_pending
 from app.agent.state import Approval, Hypothesis, WorkOrderDraft
+from app.agent.tools import NoTools
 from app.agent.work_order import VERIFICATION_SOP
 from app.testing import ScriptedChat
 from tests.test_agent_graph import NOW, Q1, hypothesis_json

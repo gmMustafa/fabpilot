@@ -33,6 +33,7 @@ class Decision:
     """Everything save_work_order hands to the store: the draft AS DECIDED, and by whom."""
 
     thread_id: str  # the agent run: the idempotency key (5.4)
+    incident_id: int | None  # the incident this run investigates (6.1); None: the CLI makes one
     machine: str
     question: str
     root_cause: str
@@ -130,6 +131,7 @@ async def save_work_order(
     work_order_id = await store.save(
         Decision(
             thread_id=thread_id,
+            incident_id=state.incident_id,
             machine=state.machine,
             question=state.question,
             root_cause=h.root_cause,
