@@ -42,7 +42,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done (verified, quiz answered, 
 - [x] 5.5 Guardrails: cite evidence; "insufficient data"
 
 ## Phase 6 — API for the frontend
-- [ ] 6.1 `POST /incidents/{id}/investigate` + SSE stream
+- [x] 6.1 `POST /incidents/{id}/investigate` + SSE stream
 - [ ] 6.2 Approval endpoints; work order CRUD
 - [ ] 6.3 OpenAPI → TypeScript types
 

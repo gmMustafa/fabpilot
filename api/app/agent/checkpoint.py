@@ -12,13 +12,18 @@ One psycopg connection (autocommit, dict rows: what the saver requires) is enoug
 the API (Phase 6) will need a connection pool instead.
 """
 
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from psycopg.rows import dict_row
+from psycopg_pool import AsyncConnectionPool
 from sqlalchemy.engine import make_url
 
 from app.agent.graph import checkpoint_serde
+
+logger = logging.getLogger(__name__)
 
 
 def libpq_url(database_url: str, connect_timeout: int) -> str:
@@ -39,3 +44,30 @@ async def postgres_checkpointer(
     ) as saver:
         await saver.setup()
         yield saver
+
+
+@asynccontextmanager
+async def pooled_checkpointer(
+    database_url: str, connect_timeout: int = 3, max_size: int = 5
+) -> AsyncIterator[AsyncPostgresSaver]:
+    """For the API (6.1): a POOL, since runs check-point concurrently (the CLI's one connection
+    would serialise them). The kwargs are what the saver requires of every connection, the
+    same that from_conn_string sets. setup() is tried once; if the DB is down at startup the
+    API still starts (/health reports it) and investigations fail with a clear error."""
+    pool = AsyncConnectionPool(
+        libpq_url(database_url, connect_timeout),
+        kwargs={"autocommit": True, "prepare_threshold": 0, "row_factory": dict_row},
+        min_size=1,
+        max_size=max_size,
+        open=False,
+    )
+    await pool.open(wait=False)  # don't block startup on the database
+    saver = AsyncPostgresSaver(pool, serde=checkpoint_serde())  # type: ignore[arg-type]
+    try:
+        await saver.setup()
+    except Exception:
+        logger.exception("checkpointer setup failed: investigations will fail until it works")
+    try:
+        yield saver
+    finally:
+        await pool.close()

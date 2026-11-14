@@ -58,6 +58,8 @@ class IncidentRef:
 class AgentRepo(WorkOrderStore, Protocol):
     """What the service needs from the database: Postgres in the app (store.py), fakes in tests."""
 
+    async def create_incident(self, machine: str, question: str) -> int: ...
+
     async def incident(self, incident_id: int) -> IncidentRef | None: ...
 
     async def run_started(self, thread_id: str, incident_id: int) -> None: ...
@@ -115,6 +117,14 @@ class AgentService:
             checkpointer=self._checkpointer,
             budget=self._budget,
         )
+
+    async def create_incident(self, machine: str, question: str) -> int:
+        """Raises NotFoundError for an unknown machine."""
+        return await self._repo.create_incident(machine, question)
+
+    def is_running(self, thread_id: str) -> bool:
+        handle = self.runs.get(thread_id)
+        return handle is not None and handle.task is not None and not handle.task.done()
 
     async def start(self, incident_id: int) -> RunHandle:
         """Check, then start. Raises Busy or NotFoundError BEFORE anything runs, so the router

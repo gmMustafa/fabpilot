@@ -60,6 +60,8 @@ class Settings(BaseSettings):
     # normal run measured 2 requests / ~5,700 tokens; these stop a runaway, not a normal run.
     agent_max_llm_attempts: int = 12
     agent_max_tokens: int = 40_000
+    # Investigations running at once in one API process (6.1); more get HTTP 429 + Retry-After.
+    agent_max_concurrent_runs: int = 2
 
     @field_validator("openrouter_models", mode="before")
     @classmethod

@@ -5,8 +5,9 @@ Separate from the ORM models on purpose: the API can expose less (no internal id
 """
 
 from datetime import date, datetime
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.db.models import AlarmSeverity, MachineStatus, MachineType, SensorKind
 
@@ -108,3 +109,32 @@ class GatewayStats(_Out):
     since: datetime
     totals: StatsTotals
     models: list[ModelStats]
+
+
+# ------------------------------------------------------------------ incidents and agent runs (6.1)
+
+
+class IncidentIn(BaseModel):
+    machine: str = Field(pattern=r"^M-\d\d$", description='Machine code, e.g. "M-08"')
+    question: str = Field(
+        min_length=3,
+        max_length=200,  # the incident title column; long questions belong in later notes
+        description='What the engineer wants to know, e.g. "Is the compressor overheating?"',
+    )
+
+
+class IncidentOut(BaseModel):
+    id: int
+    machine: str
+    question: str
+
+
+class RunOut(BaseModel):
+    """A run's current state (also after a restart: from the checkpointer). Use it to catch up
+    after a dropped stream."""
+
+    thread_id: str
+    status: Literal["running", "paused", "done", "failed"]
+    answer: str | None
+    pending_approval: dict[str, Any] | None  # the draft waiting for a decision (6.2)
+    usage: dict[str, int]

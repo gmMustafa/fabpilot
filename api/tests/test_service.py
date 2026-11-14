@@ -30,6 +30,13 @@ class FakeRepo(FakeStore):
         self.finished: dict[str, tuple[RunStatus, AgentState | None, str | None]] = {}
         self.started: list[str] = []
 
+    async def create_incident(self, machine: str, question: str) -> int:
+        if machine != "M-08":
+            raise NotFoundError(f"machine {machine!r} does not exist")
+        incident_id = max(self.incidents) + 1
+        self.incidents[incident_id] = IncidentRef(machine, question)
+        return incident_id
+
     async def incident(self, incident_id: int) -> IncidentRef | None:
         return self.incidents.get(incident_id)
 

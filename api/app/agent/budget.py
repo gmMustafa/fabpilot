@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.agent.state import AgentState
+from app.config import Settings
 from app.gateway.structured import Spend
 
 BUDGET_PREFIX = "budget:"  # every refusal starts with it: the report tells "we stopped" apart
@@ -86,4 +87,11 @@ def usage_line(state: AgentState) -> str:
     )
 
 
-DEFAULT_BUDGET = RunBudget()  # tests and draft-only runs; the CLI builds one from the settings
+DEFAULT_BUDGET = RunBudget()  # tests and draft-only runs; the CLI and the API use from_settings
+
+
+def budget_from(settings: Settings) -> RunBudget:
+    """per_call = the gateway's attempt cap: the worst case of one call (the reservation)."""
+    return RunBudget(
+        settings.agent_max_llm_attempts, settings.agent_max_tokens, settings.llm_max_attempts
+    )

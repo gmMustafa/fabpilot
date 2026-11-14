@@ -25,7 +25,7 @@ from typing import Any
 
 from langgraph.checkpoint.base import BaseCheckpointSaver
 
-from app.agent.budget import RunBudget
+from app.agent.budget import budget_from
 from app.agent.checkpoint import postgres_checkpointer
 from app.agent.graph import Graph, build_graph, pending_approval, resume, run_question, thread
 from app.agent.state import AgentState, Approval, WorkOrderDraft
@@ -155,9 +155,7 @@ async def _main(args: argparse.Namespace) -> int:
     engine = create_engine(settings)
     gateway = build_gateway(settings, engine=engine)
     store = None if args.draft_only else SqlWorkOrderStore(engine)
-    budget = RunBudget(
-        settings.agent_max_llm_attempts, settings.agent_max_tokens, settings.llm_max_attempts
-    )
+    budget = budget_from(settings)
     try:
         async with postgres_checkpointer(
             str(settings.database_url), settings.db_connect_timeout
