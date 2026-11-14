@@ -25,16 +25,23 @@ def test_whole_document() -> None:
     assert assemble_section(CHUNKS, None) == (
         "## Overview\n\nApplies to: M-09.\n\n"
         "## §1 Safety\n\nIsolate first.\n\n"
-        "## §5.1 Strainer dp\n\nPart A\n\nPart B\n\n"
-        "## §5.2 Vibration\n\nBearings.\n\n"
+        "## §5 Troubleshooting\n\n"  # restored from "(in 5. Troubleshooting)": it has no chunk
+        "### §5.1 Strainer dp\n\nPart A\n\nPart B\n\n"
+        "### §5.2 Vibration\n\nBearings.\n\n"
         "## §50 Fifty\n\nNot part of §5."
     )
 
 
 def test_section_with_subsections_and_a_split_chunk() -> None:
     assert assemble_section(CHUNKS, "§5") == (
-        "## §5.1 Strainer dp\n\nPart A\n\nPart B\n\n## §5.2 Vibration\n\nBearings."
+        "## §5 Troubleshooting\n\n"
+        "### §5.1 Strainer dp\n\nPart A\n\nPart B\n\n### §5.2 Vibration\n\nBearings."
     )
+
+
+def test_a_subsection_alone_gets_no_parent_heading() -> None:
+    """§5.1 asked for: §5 isn't part of the answer, so its heading isn't either."""
+    assert assemble_section(CHUNKS, "§5.1") == "### §5.1 Strainer dp\n\nPart A\n\nPart B"
 
 
 def test_context_header_never_appears() -> None:

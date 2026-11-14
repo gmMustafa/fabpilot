@@ -49,8 +49,8 @@ class Hypothesis(BaseModel):
     confidence: Literal["low", "medium", "high"]
     evidence: list[EvidenceRef] = Field(description="The evidence ids this conclusion rests on")
     citations: list[str] = Field(
-        description="Document citations exactly as shown in the evidence list, e.g. "
-        "'[MAN-CMP-001 §5.2]'"
+        description="The bracketed document references from the D lines, copied exactly, e.g. "
+        "'[MAN-CMP-001 §5.2]'. Never an evidence id like 'F1' or 'D4'."
     )
     alternatives_ruled_out: list[RuledOut] = Field(default_factory=list)
     needs_action: bool = Field(description="True if someone should do something on the machine")

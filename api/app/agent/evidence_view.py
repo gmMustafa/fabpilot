@@ -52,7 +52,8 @@ def _alarm_lines(alarm_log: dict[str, Any]) -> list[str]:
     total, shown = alarm_log.get("total_count", 0), len(alarm_log.get("alarms", []))
     if alarm_log.get("truncated"):
         lines.append(
-            f"A* only the newest {shown} of {total} alarms are listed: the onset is missing"
+            f"A{len(lines) + 1} only the newest {shown} of {total} alarms are listed: "
+            "the onset is missing"
         )
     return lines
 
@@ -64,10 +65,12 @@ def render(state: AgentState, now: datetime) -> tuple[str, set[str]]:
     if ev.machine:
         m = ev.machine
         lines.append(
-            f"MACHINE {m['code']} {m.get('name', '')} ({m.get('type')}, {m.get('line')}); "
+            f"Machine: {m['code']} {m.get('name', '')} ({m.get('type')}, {m.get('line')}); "
             f"status as last reported: {m.get('status')}"
         )
-    lines.append("DATA " + data_age_sentence(state.data_ends_at, now))
+    # "Machine:" / "Data:" are headers, not ids: written so they don't LOOK like one (5.5b: the
+    # model cited "DATA" and "A-" as evidence; every id-like label must be citable).
+    lines.append("Data: " + data_age_sentence(state.data_ends_at, now))
 
     an = ev.anomalies or {}
     for i, f in enumerate(an.get("findings", []), start=1):
@@ -85,7 +88,7 @@ def render(state: AgentState, now: datetime) -> tuple[str, set[str]]:
         lines.append(f"N{i} not checkable: {c['check']}: {c['reason']}")
 
     if ev.alarm_log is not None:
-        lines += _alarm_lines(ev.alarm_log) or ["A- no alarms in the window"]
+        lines += _alarm_lines(ev.alarm_log) or ["A1 no alarms in the window"]  # real data: citable
     for i, r in enumerate((ev.incidents or {}).get("reports", []), start=1):
         lines.append(
             f"I{i} {r['doc_id']} {r['date']} fault={r.get('fault')} false_alarm={r['false_alarm']}"

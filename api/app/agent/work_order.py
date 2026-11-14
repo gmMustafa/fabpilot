@@ -87,14 +87,25 @@ def check_work_order(
                 f"part {p.part_no!r} is not in {sop_id}'s parts table; use only listed part numbers"
             )
 
-    # Rule 3: every hold point covered by a safety action at its location (5.5; was a count)
-    errors += check_procedure(wo, parse_procedure(sop_text), sop_id)[0]
+    # Rule 3: every hold point covered by a safety action at its location (5.5; was a count).
+    # FAIL CLOSED: no steps found means "could not read", not "no hold points" (5.5b live run).
+    procedure = parse_procedure(sop_text)
+    if not procedure.steps:
+        errors.append(unreadable(sop_id))
+    errors += check_procedure(wo, procedure, sop_id)[0]
 
     # Rule 4: Verify sensor faults first
     if category is Category.SENSOR_FAULT and wo.sop_ref != VERIFICATION_SOP:
         errors.append(f"a suspected sensor fault needs {VERIFICATION_SOP} first, not {wo.sop_ref}")
 
     return errors
+
+
+def unreadable(sop_id: str) -> str:
+    return (
+        f"could not read the procedure steps of {sop_id}, so its hold points can't be checked; "
+        "no draft without that check"
+    )
 
 
 def with_code_fields(wo: WorkOrderDraft, sop_id: str, sop_text: str) -> WorkOrderDraft:
@@ -118,6 +129,9 @@ async def draft_work_order(
     if doc is None:
         return {"sop_id": sop_id, "work_order_errors": [f"could not read {sop_id}"]}
     sop_text = doc["text"]
+    if not parse_procedure(sop_text).steps:
+        # Before the LLM call: a draft we can't safety-check is not worth a request.
+        return {"sop_id": sop_id, "work_order_errors": [unreadable(sop_id)]}
 
     errors: list[str] = []
     spend = Spend()  # ONE meter across the draft and its retry

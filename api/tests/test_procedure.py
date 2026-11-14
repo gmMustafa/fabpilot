@@ -13,6 +13,9 @@ from app.agent.procedure import (
 )
 from app.agent.state import Category, WorkAction
 from app.agent.work_order import VERIFICATION_SOP, check_work_order
+from app.rag.chunking import chunk_document
+from app.rag.corpus import load_document
+from app.rag.library import ChunkRow, assemble_section
 from app.testing import API_DIR, ScriptedChat
 from tests.test_agent_graph import NOW, Q1, TOOLS_WITH_CITATIONS, hypothesis_json
 from tests.test_agent_nodes import fake_tools
@@ -222,3 +225,49 @@ async def test_the_live_q1_draft_passes_with_notes_warnings_and_the_sop_as_sourc
     assert "SAFETY (SOP-GEN-004 §2): Readings with the reference instrument" in answer
     assert "⚠ Note for the reviewer: steps 3, 6 of SOP-GEN-004" in answer
     assert "[SOP-GEN-004]" in answer.split("Sources: ")[1]
+
+
+# ------------------------------------------------------------------ the TOOL's text (5.5b)
+
+
+def tool_text(doc_id: str) -> str:
+    """What get_document returns, built offline the same way: chunker -> assemble_section."""
+    doc = load_document(SOPS / f"{doc_id}.md")
+    rows = [
+        ChunkRow(c.ordinal, c.section_ref, c.section_title, c.text) for c in chunk_document(doc)
+    ]
+    return assemble_section(rows, None)
+
+
+@pytest.mark.parametrize("doc_id", sorted(EXPECTED_HOLD_POINTS))
+def test_the_agent_parses_what_the_tool_returns_like_the_file(doc_id: str) -> None:
+    """THE contract: the agent reads the TOOL's text, not the file. 5.5b live run: for SOPs with
+    subsections the tool text had no "Procedure" heading, the parser found nothing, and the
+    hold-point check passed without checking anything. Tested against the file only, it passed."""
+    from_file, from_tool = parse_procedure(sop(doc_id)), parse_procedure(tool_text(doc_id))
+    assert from_tool.steps == from_file.steps and from_tool.steps  # non-empty, identical
+    assert [h.where for h in from_tool.hold_points] == EXPECTED_HOLD_POINTS[doc_id]
+    assert safety_notes(tool_text(doc_id)) == safety_notes(sop(doc_id))
+
+
+def test_an_unreadable_procedure_is_an_error_not_a_pass() -> None:
+    """Fail closed: "found no hold points" is not "has no hold points"."""
+    no_procedure = "## §2 Safety\n\n- Isolate first."
+    errors = check_work_order(
+        draft(parts=[]), VERIFICATION_SOP, no_procedure, Category.SENSOR_FAULT
+    )
+    assert errors == [
+        "could not read the procedure steps of SOP-GEN-004, so its hold points can't be "
+        "checked; no draft without that check"
+    ]
+
+
+async def test_an_unreadable_sop_costs_no_draft_request() -> None:
+    """Checked BEFORE the LLM call: ScriptedChat has only the hypothesis answer, so a draft
+    request would fail this test."""
+    doc = {"doc_id": VERIFICATION_SOP, "title": "Sensor verification", "text": "no procedure"}
+    tools = fake_tools({**TOOLS_WITH_CITATIONS, ("docs", "get_document"): doc})
+    chat = ScriptedChat(hypothesis_json(needs_action=True))
+    state = await run_question(build_graph(tools, chat, clock=lambda: NOW), Q1)
+    assert state.work_order is None and state.llm_requests == 1
+    assert state.work_order_errors[0].startswith("could not read the procedure steps")

@@ -24,9 +24,9 @@ from app.agent.state import WorkOrderDraft
 
 HOLD_POINT = "⚠ STOP"
 
-_PROCEDURE = re.compile(r"^## .*Procedure", re.IGNORECASE)
 _SAFETY = re.compile(r"^## .*Safety", re.IGNORECASE)
-_SUBSECTION = re.compile(r"^### §?(\d+(?:\.\d+)+)")  # "### 4.3 Verify zero energy"
+# "## 4. Procedure", "### 4.3 Verify zero energy — ⚠ STOP", "## §4 Procedure", "### §4.3 ..."
+_HEADING = re.compile(r"^#{2,3}\s+§?(\d+(?:\.\d+)*)\.?\s+(.*)$")
 _STEP = re.compile(r"^(\d+)\. ")  # "4. Apply LOTO ..."
 # "step 7", "steps 7-8", and with an EN DASH (U+2013), as the SOPs and the models write ranges.
 # Written as the regex escape \u2013 so the intent is visible (ruff RUF001 flags a literal one).
@@ -72,18 +72,40 @@ def _section_lines(sop_text: str, heading: re.Pattern[str]) -> list[str]:
 
 
 def parse_procedure(sop_text: str) -> Procedure:
+    """Steps, hold points and subsections of the SOP's procedure section, from EITHER format:
+    the source file ("## 4. Procedure", "### 4.3 ...") or what get_document returns
+    ("## §4 Procedure", "### §4.3 ...", reassembled from chunks). The procedure is found by its
+    NUMBER: a top-level section titled "Procedure" and every subsection numbered under it.
+
+    An EMPTY result means "could not read it", never "has no hold points": callers fail closed
+    (5.5b: the tool's text once had no "Procedure" heading, and the check passed unchecked)."""
     steps: list[int] = []
     holds: list[HoldPoint] = []
     current: int | None = None  # the step a continuation line belongs to
+    procedure: str | None = None  # the procedure's top-level number, "4"
+    inside = False
     section: str | None = None
     section_steps: dict[str, list[int]] = {}
     section_holds: list[str] = []
-    for line in _section_lines(sop_text, _PROCEDURE):
-        if sub := _SUBSECTION.match(line):
-            section, current = sub.group(1), None
-            section_steps[section] = []
-            if HOLD_POINT in line:
-                section_holds.append(section)
+    for line in sop_text.splitlines():
+        if line.startswith("#"):
+            current, section = None, None
+            heading = _HEADING.match(line)
+            if heading is None:  # "## Overview" and other unnumbered headings
+                inside = False
+                continue
+            number, title = heading.group(1), heading.group(2)
+            top = number.split(".")[0]
+            if "." not in number and "procedure" in title.lower():
+                procedure = top
+            inside = procedure is not None and top == procedure
+            if inside and "." in number:
+                section = number
+                section_steps[section] = []
+                if HOLD_POINT in line:
+                    section_holds.append(section)
+            continue
+        if not inside:
             continue
         if step := _STEP.match(line):
             current = int(step.group(1))

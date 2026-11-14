@@ -39,7 +39,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done (verified, quiz answered, 
 - [x] 5.2 Nodes: triage → investigate → hypothesize → draft_work_order
 - [x] 5.3 Human-in-the-loop interrupt (approve / edit / reject)
 - [x] 5.4 Postgres checkpointer; max-steps + token budget guard
-- [ ] 5.5 Guardrails: cite evidence; "insufficient data"
+- [x] 5.5 Guardrails: cite evidence; "insufficient data"
 
 ## Phase 6 — API for the frontend
 - [ ] 6.1 `POST /incidents/{id}/investigate` + SSE stream

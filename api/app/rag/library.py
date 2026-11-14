@@ -7,6 +7,7 @@ Pattern: search -> cite -> read the cited section.
 Like plant_data: no HTTP, no MCP here; adapters map NotFoundError / InvalidQueryError.
 """
 
+import re
 from dataclasses import dataclass
 from datetime import date
 from typing import Any, Literal
@@ -17,6 +18,9 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from app.db.models import FaultType, KbChunk, KbDocument, MachineType, SourceType
 from app.errors import InvalidQueryError, NotFoundError
+
+# The end of a subsection's context header: "... · §4.1 Desk check (in 4. Procedure)"
+_PARENT = re.compile(r"\(in (\d+(?:\.\d+)*)\.? +([^()]+)\)\s*$")
 
 
 def section_in(section_ref: str, wanted: str) -> bool:
@@ -41,14 +45,21 @@ def assemble_section(chunks: list[ChunkRow], wanted: str | None) -> str:
     then a blank line, then the body. In the output:
     - the context header is dropped from every chunk (the caller returns the document's title
       and id separately; eight copies of the same header are noise for the model),
-    - each section gets ONE heading line "## §5.1 Strainer differential pressure rising"
-      (for the overview: "## Overview"), written when the section starts,
+    - each section gets ONE heading line, at its level in the source: "## §5 Troubleshooting",
+      "### §5.1 Strainer differential pressure rising" (for the overview: "## Overview"),
+      written when the section starts,
+    - a parent that has no text of its own (a "## 4. Procedure" that only introduces its ###
+      subsections) has no chunk; its heading is restored from the context header's
+      "(in 4. Procedure)" before its first subsection. 5.5b: without it, the agent's SOP parser
+      couldn't find the procedure of any SOP with subsections, and its hold-point check
+      passed WITHOUT checking anything,
     - a section split over several chunks continues under the same heading (no second heading),
     - sections are separated by a blank line; the result has no leading/trailing whitespace.
     Returns "" if no chunk matches (the caller turns that into a "no such section" error).
     """
     result = []
     previous_section = None
+    headed: set[str] = set()  # section refs whose heading is already written
 
     for c in sorted(chunks, key=lambda chunk: chunk.ordinal):
         # Keep only the requested section and its subsections
@@ -66,10 +77,20 @@ def assemble_section(chunks: list[ChunkRow], wanted: str | None) -> str:
 
         # Add a heading only when entering a new section
         if c.section_ref != previous_section:
+            parent = _PARENT.search(parts[0])
+            if parent:
+                parent_ref = f"§{parent.group(1)}"
+                if parent_ref not in headed and (wanted is None or section_in(parent_ref, wanted)):
+                    result.append(f"## {parent_ref} {parent.group(2).strip()}")
+                    headed.add(parent_ref)
+            level = "###" if "." in c.section_ref else "##"
             heading = (
-                f"## {c.section_ref} {c.section_title}".strip() if c.section_ref else "## Overview"
+                f"{level} {c.section_ref} {c.section_title}".strip()
+                if c.section_ref
+                else "## Overview"
             )
             result.append(heading)
+            headed.add(c.section_ref)
             previous_section = c.section_ref
 
         result.append(body)

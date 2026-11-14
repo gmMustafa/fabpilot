@@ -5,6 +5,7 @@ answer is assembled from the VALIDATED hypothesis plus caveats computed by code,
 important caveat ("the data is 26 h old") can never be forgotten, and it costs no request.
 """
 
+import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any, Literal
@@ -19,6 +20,8 @@ from app.agent.state import AgentState, Category, Hypothesis
 from app.agent.tools import Server, Tools
 from app.gateway.structured import ChatModel, Spend, StructuredOutputError, chat_structured
 from app.gateway.types import ChatMessage, LLMError
+
+logger = logging.getLogger(__name__)
 
 MAX_HYPOTHESIS_RETRIES = 1
 # Output budgets. Reasoning models spend most tokens "thinking" first: 1500 was not enough for
@@ -44,12 +47,16 @@ REPLACES = {"get_alarm_log": "alarm_log", "detect_anomalies": "anomalies"}
 SYSTEM = """\
 You are a maintenance engineer's assistant for an industrial plant. You judge EVIDENCE that code
 collected from the machine data and the plant's documents. Rules:
-- Use only the evidence list. Refer to it by id (F1, A2, D3, I1 ...).
-- Cite documents exactly as shown in the evidence list, e.g. [MAN-CMP-001 §5.2].
+- Use only the evidence list. Refer to it by id (F1, A2, D3, I1 ...) in "evidence".
+- "citations" are ONLY the bracketed document references inside the D lines, copied exactly,
+  e.g. [MAN-CMP-001 §5.2]. An evidence id like F1 or D4 is never a citation.
 - A past incident (I..) is an analogy, never proof: the current data decides.
+- A fault (machine_fault or sensor_fault) needs current data among its evidence: an F or A id.
+  Documents (D..) and past incidents (I..) explain, they never prove.
 - If one sensor changed alone and its physical neighbours stayed quiet, consider a faulty sensor.
 - "unknown" is an allowed answer when the evidence doesn't decide it. Never invent data.
-- Respect the DATA line: if the data is old, say nothing about the CURRENT state."""
+- Respect the Data line: if the data is old, say nothing about the CURRENT state. Old data does
+  NOT stop a diagnosis: diagnose what the data shows up to its end, and say it is that old."""
 
 
 class FollowUpChoice(BaseModel):
@@ -134,7 +141,10 @@ async def hypothesize(
     retry = (
         "\n\nYour previous answer was REJECTED by automatic checks:\n- "
         + "\n- ".join(state.guard_errors)
-        + "\nFix every point."
+        # Without this, a model under pressure retreats to "unknown": the answer with the fewest
+        # checks becomes the easiest one to pass, not the truest (5.5b live run).
+        + "\nFix every point. Keep your diagnosis if the evidence supports it: answer "
+        '"unknown" only if the evidence really does not decide it.'
         if state.guard_errors
         else ""
     )
@@ -171,6 +181,15 @@ def guard(state: AgentState, now: Now = _utcnow) -> dict[str, Any]:
     _, known = render(state, now())
     findings = (state.evidence.anomalies or {}).get("findings", [])
     errors = check_hypothesis(state.hypothesis, known, state.evidence.cited_ids(), findings)
+    if errors:
+        # Visible even when the retry passes (5.5b live run: a rejected first answer, then an
+        # "unknown" retry, and no trace of WHY the first one was rejected).
+        logger.warning(
+            "hypothesis rejected (%s, %s): %s",
+            state.hypothesis.category,
+            state.hypothesis.root_cause[:80],
+            "; ".join(errors),
+        )
     return {"guard_errors": errors, "retries": state.retries + (1 if errors else 0)}
 
 
