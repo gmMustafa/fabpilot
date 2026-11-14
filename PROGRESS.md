@@ -35,7 +35,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done (verified, quiz answered, 
 - [x] 4.4 Tool descriptions — and tool RESULTS: completeness fields, list_incident_reports, F1-F19 (evals/mcp_sanity/protocol.md)
 
 ## Phase 5 — Incident agent (LangGraph)
-- [ ] 5.1 LangGraph concepts + graph drawing
+- [x] 5.1 LangGraph concepts + graph drawing (docs/agent-design.md)
 - [ ] 5.2 Nodes: triage → investigate → hypothesize → draft_work_order
 - [ ] 5.3 Human-in-the-loop interrupt (approve / edit / reject)
 - [ ] 5.4 Postgres checkpointer; max-steps + token budget guard
