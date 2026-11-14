@@ -6,7 +6,7 @@
 #   uv run --package fabpilot-simulator simulator --help
 
 [tool.uv.workspace]
-members = ["api", "simulator", "mcp/sensor_mcp"]
+members = ["api", "simulator", "mcp/sensor_mcp", "mcp/docs_mcp"]
 
 # Dev tools shared by all members (lint/type/test the whole repo with one toolchain).
 [dependency-groups]
@@ -25,7 +25,7 @@ dev = [
 line-length = 100
 target-version = "py312"
 # Where first-party code lives, so isort groups `app` / `simulator` imports correctly from the root.
-src = ["api", "simulator/src", "mcp/sensor_mcp/src"]
+src = ["api", "simulator/src", "mcp/sensor_mcp/src", "mcp/docs_mcp/src"]
 
 [tool.ruff.lint]
 # E/W pycodestyle, F pyflakes, I isort, B bugbear (likely bugs), UP pyupgrade (modern syntax),

@@ -1,0 +1,35 @@
+[project]
+name = "fabpilot-docs-mcp"
+version = "0.1.0"
+description = "MCP server: search and read the FabPilot knowledge base (manuals, SOPs, incident reports)."
+requires-python = ">=3.12"
+dependencies = [
+    # Reuses the DB layer (models, engine, settings) of the API package. To publish this server
+    # standalone (11.2), that dependency has to be cut first.
+    "fabpilot-api",
+    "mcp>=2.3.0",
+]
+
+[project.scripts]
+docs-mcp = "docs_mcp.server:main"
+
+[tool.uv.sources]
+fabpilot-api = { workspace = true }
+
+[build-system]
+requires = ["uv_build>=0.11.6,<0.12.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "docs_mcp"
+
+# ---------------------------------------------------------------- pytest (run from mcp/docs_mcp/)
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = '--strict-markers -m "not embedding"'
+markers = [
+    "integration: needs real services (Postgres via docker compose); deselect with -m 'not integration'",
+    "embedding: loads the real embedding model (~130 MB download on first run); run with -m embedding",
+]

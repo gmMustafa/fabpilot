@@ -11,6 +11,7 @@ resolution-markers = [
 [manifest]
 members = [
     "fabpilot-api",
+    "fabpilot-docs-mcp",
     "fabpilot-sensor-mcp",
     "fabpilot-simulator",
 ]
@@ -499,6 +500,21 @@ requires-dist = [
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.1.8" },
     { name = "truststore", specifier = ">=0.10.5" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.54.0" },
+]
+
+[[package]]
+name = "fabpilot-docs-mcp"
+version = "0.1.0"
+source = { editable = "mcp/docs_mcp" }
+dependencies = [
+    { name = "fabpilot-api" },
+    { name = "mcp" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "fabpilot-api", editable = "api" },
+    { name = "mcp", specifier = ">=2.3.0" },
 ]
 
 [[package]]

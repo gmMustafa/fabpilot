@@ -54,6 +54,7 @@ jobs:
       # Separate run: each package's tests/conftest.py is a top-level module `conftest`, and one
       # mypy run can hold only one module per name.
       - run: uv run mypy mcp/sensor_mcp
+      - run: uv run mypy mcp/docs_mcp
       # The secret checks again: a local hook can be skipped (--no-verify) or not installed.
       - run: uv run pre-commit run no-openrouter-key --all-files
       - run: uv run pre-commit run no-env-file --all-files
@@ -98,4 +99,7 @@ jobs:
         run: uv run pytest -v
       - name: pytest (sensor-mcp)
         working-directory: mcp/sensor_mcp
+        run: uv run pytest -v
+      - name: pytest (docs-mcp)
+        working-directory: mcp/docs_mcp
         run: uv run pytest -v

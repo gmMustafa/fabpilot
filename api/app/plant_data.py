@@ -17,20 +17,16 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from app.db.models import Alarm, AlarmSeverity, Machine, Sensor
+
+# `X as X` = explicit re-export: routers and sensor-mcp import the errors from here.
+from app.errors import InvalidQueryError as InvalidQueryError
+from app.errors import NotFoundError as NotFoundError
 from app.schemas import AlarmOut, MachineDetail, MachineOut, ReadingBucket, ReadingsOut, SensorOut
 
 MAX_POINTS = 500  # enough for any chart; protects DB, network, browser -- and an LLM's context
 DEFAULT_RANGE = timedelta(hours=24)
 MAX_ALARM_RANGE = timedelta(days=31)
 MAX_ALARMS = 200  # an alarm list is LLM context: 200 lines is already a lot of tokens
-
-
-class NotFoundError(LookupError):
-    """A machine or sensor that doesn't exist. REST: 404."""
-
-
-class InvalidQueryError(ValueError):
-    """A request that can't be answered as asked; the message says how to fix it. REST: 422."""
 
 
 class Bucket(StrEnum):

@@ -30,7 +30,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done (verified, quiz answered, 
 
 ## Phase 4 — MCP servers
 - [x] 4.1 `sensor-mcp`: `list_machines`, `get_readings`, `get_alarm_log`, `detect_anomalies` (+ `get_machine`)
-- [ ] 4.2 `docs-mcp`: `search_docs`, `get_incident_report`
+- [x] 4.2 `docs-mcp`: `search_docs`, `get_incident_report` (+ `get_document`)
 - [ ] 4.3 Test with MCP Inspector + Claude Desktop / Claude Code
 - [ ] 4.4 Tool descriptions
 

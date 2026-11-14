@@ -21,6 +21,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.db.models import MachineType
+from app.rag.library import section_in
 
 _REF = re.compile(
     r"^(?P<doc>(?:MAN|SOP)-[A-Z]{3}-\d{3}|INC-\d{4}-\d{3})"  # the document ID
@@ -83,7 +84,7 @@ def matches(hit: Hit, ref: str, *, doc_only: bool = False) -> bool:
         return False
     if doc_only or sec is None:
         return True
-    return hit.section_ref == sec or hit.section_ref.startswith(sec + ".")
+    return section_in(hit.section_ref, sec)
 
 
 def first_hit_rank(
