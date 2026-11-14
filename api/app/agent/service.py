@@ -35,8 +35,8 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from app.agent.approval import WorkOrderStore
 from app.agent.budget import DEFAULT_BUDGET, RunBudget
 from app.agent.events import step_event
-from app.agent.graph import Graph, build_graph, thread
-from app.agent.state import AgentState
+from app.agent.graph import Graph, build_graph, resume, thread
+from app.agent.state import AgentState, Approval
 from app.agent.tools import NoTools, Tools
 from app.db.models import RunStatus
 from app.errors import NotFoundError
@@ -47,6 +47,18 @@ logger = logging.getLogger(__name__)
 
 class Busy(Exception):
     """Every run slot is taken: try again in a minute (HTTP 429)."""
+
+
+class NotWaiting(Exception):
+    """The run exists but isn't waiting for a decision: still running, or decided (HTTP 409)."""
+
+
+class SentBack(Exception):
+    """check_approval rejected the decision; the run stays paused and asks again (HTTP 422)."""
+
+    def __init__(self, errors: list[str]) -> None:
+        super().__init__("; ".join(errors))
+        self.errors = errors
 
 
 @dataclass(frozen=True)
@@ -107,6 +119,9 @@ class AgentService:
         self._tools, self._budget, self._clock = tools, budget, clock
         self._max, self._active = max_concurrent, 0
         self.runs: dict[str, RunHandle] = {}
+        # One lock per run (6.2): two decisions at the same moment would BOTH see "paused" and
+        # both resume. With the lock the second waits, then sees "not waiting" (409).
+        self._decision_locks: dict[str, asyncio.Lock] = {}
 
     def _graph(self, tools: Tools) -> Graph:
         return build_graph(
@@ -180,6 +195,25 @@ class AgentService:
                 logger.exception("could not record the end of run %s", handle.thread_id)
             emit(RunEvent("done", {"thread_id": handle.thread_id, "status": status.value}))
             emit(None)
+
+    async def decide(self, thread_id: str, approval: Approval) -> AgentState:
+        """Hand a human's decision to a paused run. Needs no tools and no LLM: only
+        await_approval and save_work_order run (milliseconds). Raises NotFoundError (no such
+        run), NotWaiting (409) or SentBack (422: the run stays paused, with the reasons)."""
+        lock = self._decision_locks.setdefault(thread_id, asyncio.Lock())
+        async with lock:
+            graph = self._graph(NoTools())
+            snapshot = await graph.aget_state(thread(thread_id))
+            if not snapshot.values:
+                raise NotFoundError(f"run {thread_id!r} does not exist")
+            if not snapshot.interrupts:
+                what = "still running" if self.is_running(thread_id) else "already decided"
+                raise NotWaiting(f"run {thread_id!r} is not waiting for a decision ({what})")
+            state = await resume(graph, approval, thread_id)
+            if state.work_order_id is None:  # check_approval sent it back: still paused
+                raise SentBack(state.approval_errors)
+            await self._repo.run_finished(thread_id, RunStatus.DONE, state, None)
+            return state
 
     async def state(self, thread_id: str) -> tuple[AgentState, dict[str, Any] | None] | None:
         """(state, pending approval or None) of any run in the checkpointer, also one started by

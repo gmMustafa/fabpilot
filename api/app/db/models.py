@@ -252,6 +252,11 @@ class WorkOrder(Base):
             "status <> 'rejected' OR (rejected_by IS NOT NULL AND review_note IS NOT NULL)",
             name="rejection_recorded",
         ),
+        # And for "done" (6.2): who finished the work and when, like approval and rejection.
+        CheckConstraint(
+            "status <> 'done' OR (completed_by IS NOT NULL AND completed_at IS NOT NULL)",
+            name="completion_recorded",
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -279,6 +284,8 @@ class WorkOrder(Base):
     rejected_by: Mapped[str | None] = mapped_column(String(100))
     # The reviewer's words: why it was rejected, or what they changed before approving.
     review_note: Mapped[str | None] = mapped_column(Text)
+    completed_by: Mapped[str | None] = mapped_column(String(100))  # the technician (6.2)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     incident: Mapped[Incident] = relationship(back_populates="work_orders")
 

@@ -5,9 +5,9 @@ Separate from the ORM models on purpose: the API can expose less (no internal id
 """
 
 from datetime import date, datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from app.db.models import AlarmSeverity, MachineStatus, MachineType, SensorKind
 
@@ -138,3 +138,13 @@ class RunOut(BaseModel):
     answer: str | None
     pending_approval: dict[str, Any] | None  # the draft waiting for a decision (6.2)
     usage: dict[str, int]
+
+
+class DecisionOut(BaseModel):
+    thread_id: str
+    status: Literal["approved", "rejected"]
+    work_order_id: int
+
+
+class CompleteIn(BaseModel):
+    by: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]

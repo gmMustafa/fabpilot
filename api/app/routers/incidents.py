@@ -4,7 +4,7 @@
     POST /incidents/{id}/investigate    -> text/event-stream:
                                            step* (one per graph node), report, approval_required?,
                                            error?, done   (every event has an id: 1, 2, 3 ...)
-    GET  /runs/{thread_id}              -> the run's state, e.g. after a dropped stream
+    (a run's state and its decision: routers/runs.py)
 
 Why the run is started in a DEPENDENCY: an SSE response commits to "200 text/event-stream" with
 its first byte, so "all slots busy" (429) or "no such incident" (404) must be decided BEFORE the
@@ -17,10 +17,10 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 
-from app.agent.service import AgentService, Busy, RunHandle, usage
+from app.agent.service import AgentService, Busy, RunHandle
 from app.db.deps import get_agent
 from app.errors import NotFoundError
-from app.schemas import IncidentIn, IncidentOut, RunOut
+from app.schemas import IncidentIn, IncidentOut
 
 router = APIRouter(tags=["incidents"])
 
@@ -80,25 +80,3 @@ async def investigate(
     while (event := await handle.events.get()) is not None:
         n += 1
         yield ServerSentEvent(event=event.event, data=event.data, id=str(n))
-
-
-@router.get("/runs/{thread_id}", response_model=RunOut)
-async def get_run(thread_id: str, agent: Agent) -> RunOut:
-    """A run's state: live from this process, or from the checkpointer (any process, a restart)."""
-    found = await agent.state(thread_id)
-    if found is None:
-        raise HTTPException(404, f"run {thread_id!r} does not exist")
-    state, pending = found
-    if agent.is_running(thread_id):
-        status = "running"
-    elif pending is not None:
-        status = "paused"
-    else:
-        status = "done" if state.answer is not None else "failed"
-    return RunOut(
-        thread_id=thread_id,
-        status=status,
-        answer=state.answer,
-        pending_approval=pending,
-        usage=usage(state),
-    )

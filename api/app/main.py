@@ -17,7 +17,7 @@ from app.agent.tools import McpTools
 from app.config import get_settings
 from app.db.session import create_engine
 from app.gateway.factory import build_gateway
-from app.routers import gateway, health, incidents, machines
+from app.routers import gateway, health, incidents, machines, runs, work_orders
 
 
 @asynccontextmanager
@@ -57,6 +57,8 @@ app.include_router(health.router)
 app.include_router(machines.router)
 app.include_router(gateway.router)
 app.include_router(incidents.router)
+app.include_router(runs.router)
+app.include_router(work_orders.router)
 
 
 @app.get("/")
