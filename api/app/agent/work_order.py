@@ -143,5 +143,10 @@ async def draft_work_order(state: AgentState, tools: Tools, gateway: ChatModel) 
         requests += out.calls
         errors = check_work_order(out.value, sop_id, sop_text, h.category)
         if not errors:
-            return {"sop_id": sop_id, "work_order": out.value, "llm_requests": requests}
+            return {
+                "sop_id": sop_id,
+                "sop_text": sop_text,
+                "work_order": out.value,
+                "llm_requests": requests,
+            }
     return {"sop_id": sop_id, "work_order_errors": errors, "llm_requests": requests}

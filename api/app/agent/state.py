@@ -81,6 +81,16 @@ class WorkOrderDraft(BaseModel):
     verification: str = Field(description="The SOP's acceptance criteria, in one or two lines")
 
 
+class Approval(BaseModel):
+    """The human's decision on a draft (5.3). Comes from OUTSIDE the agent (CLI, later the API):
+    untrusted input, so it is validated like any other boundary, and an edit is re-checked."""
+
+    action: Literal["approve", "edit", "reject"]
+    by: str = Field(description="Who decided: a name, kept in the work order")
+    edited: WorkOrderDraft | None = None  # action="edit": the reviewer's version of the draft
+    reason: str | None = None  # why it was rejected, or what was changed
+
+
 class Evidence(BaseModel):
     """Everything the investigation collected, as the tools returned it."""
 
@@ -123,7 +133,12 @@ class AgentState(BaseModel):
     llm_error: str | None = None
     # draft_work_order
     sop_id: str | None = None  # the SOP read in full for the draft
+    sop_text: str | None = None  # kept: an edited draft is re-checked against it (5.3)
     work_order: WorkOrderDraft | None = None
     work_order_errors: list[str] = Field(default_factory=list)  # why no draft was kept
     # report
     answer: str | None = None
+    # await_approval / save_work_order (5.3)
+    approval: Approval | None = None
+    approval_errors: list[str] = Field(default_factory=list)  # why the decision was sent back
+    work_order_id: int | None = None  # the saved row: set ONLY after a human decided

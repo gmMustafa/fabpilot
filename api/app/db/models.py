@@ -239,6 +239,11 @@ class WorkOrder(Base):
             " OR (approved_by IS NOT NULL AND approved_at IS NOT NULL)",
             name="approval_recorded",
         ),
+        # Same idea for "no" (5.3): a rejection without who and why is useless for audit and evals.
+        CheckConstraint(
+            "status <> 'rejected' OR (rejected_by IS NOT NULL AND review_note IS NOT NULL)",
+            name="rejection_recorded",
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -256,6 +261,12 @@ class WorkOrder(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     approved_by: Mapped[str | None] = mapped_column(String(100))
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # The complete document the human decided on (title, SOP, steps, parts, acceptance): an audit
+    # must show exactly what was signed, not a reconstruction from actions/parts.
+    draft: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    rejected_by: Mapped[str | None] = mapped_column(String(100))
+    # The reviewer's words: why it was rejected, or what they changed before approving.
+    review_note: Mapped[str | None] = mapped_column(Text)
 
     incident: Mapped[Incident] = relationship(back_populates="work_orders")
 
