@@ -27,7 +27,7 @@ from docs_mcp.server import create_server
 
 pytestmark = pytest.mark.integration
 
-TOOLS = {"search_docs", "get_document", "get_incident_report"}
+TOOLS = {"search_docs", "get_document", "get_incident_report", "list_incident_reports"}
 DOCS = [
     "manuals/MAN-PMP-001.md",
     "manuals/MAN-CMP-001.md",
@@ -147,6 +147,77 @@ async def test_errors_say_how_to_fix_the_call(client: OneShotClient) -> None:
     assert "not found" in await _error(client, "get_document", {"doc_id": "MAN-XYZ-001"})
     assert "get_document" in await _error(client, "get_incident_report", {"doc_id": "MAN-PMP-001"})
     assert "pattern" in (await _error(client, "get_document", {"doc_id": "pump manual"})).lower()
+
+
+# ------------------------------------------------------------------ list_incident_reports (4.4b)
+
+
+@pytest.fixture
+async def full_client(migrated_db_url: str) -> OneShotClient:
+    """The WHOLE corpus: listing is about completeness, a subset can't test that."""
+    eng = create_async_engine(migrated_db_url)
+    await ingest(eng, load_corpus(get_settings().docs_dir), FakeEmbedder(), max_tokens=350)
+    await eng.dispose()
+    return OneShotClient(create_server(lambda: create_async_engine(migrated_db_url), FakeEmbedder))
+
+
+async def _list(client: OneShotClient, **args: Any) -> Any:
+    return await _call(client, "list_incident_reports", args)
+
+
+async def test_q5_false_alarms_on_m09_in_one_call(full_client: OneShotClient) -> None:
+    """Protocol Q5: search needed three queries and luck (Run 3) or Grep (Run 2)."""
+    every = await _list(full_client, machine="M-09")
+    assert every["total_count"] == 6 and not every["truncated"]
+    false = await _list(full_client, machine="M-09", false_alarm=True)
+    assert [r["doc_id"] for r in false["reports"]] == ["INC-2025-012"]
+    assert false["reports"][0]["fault"] == "sensor_drift"
+
+
+async def test_fault_none_lists_causes_outside_the_six(full_client: OneShotClient) -> None:
+    r = await _list(full_client, fault="none")
+    assert {x["doc_id"] for x in r["reports"]} == {
+        "INC-2023-007",
+        "INC-2024-010",
+        "INC-2025-002",
+        "INC-2025-016",
+        "INC-2026-006",
+    }
+    assert all(x["fault"] is None for x in r["reports"])
+
+
+async def test_filters_combine(full_client: OneShotClient) -> None:
+    r = await _list(full_client, machine_type="compressor", fault="clogged_filter")
+    assert {x["doc_id"] for x in r["reports"]} == {"INC-2024-005", "INC-2025-009"}
+    real = await _list(full_client, machine="M-08", false_alarm=False)
+    assert "INC-2024-014" not in {
+        x["doc_id"] for x in real["reports"]
+    }  # that one was a false alarm
+
+
+async def test_list_is_newest_first_and_says_when_cut(full_client: OneShotClient) -> None:
+    r = await _list(full_client, limit=3)
+    dates = [x["date"] for x in r["reports"]]
+    assert dates == sorted(dates, reverse=True)
+    assert r["truncated"] and r["total_count"] == 30
+
+
+async def test_fault_values_are_in_the_schema(full_client: OneShotClient) -> None:
+    """The model sees the valid fault values BEFORE calling (the F5 lesson)."""
+    tools = {t.name: t for t in (await full_client.list_tools()).tools}
+    schema = tools["list_incident_reports"].input_schema
+    options = schema["properties"]["fault"]["anyOf"]
+    assert {"const": "none", "type": "string"} in options
+    # the FaultType values live in $defs (the property only $refs them), as a client resolves it
+    assert "clogged_filter" in schema["$defs"]["FaultType"]["enum"]
+    assert "clogged" in (await _error(full_client, "list_incident_reports", {"fault": "gremlins"}))
+
+
+async def test_descriptions_say_when_to_switch_tools(client: OneShotClient) -> None:
+    """F11 / F1: search_docs must point at get_document (procedures) and the list (counting)."""
+    tools = {t.name: t for t in (await client.list_tools()).tools}
+    desc = tools["search_docs"].description or ""
+    assert "get_document" in desc and "list_incident_reports" in desc
 
 
 def test_no_code_path_reads_the_sim_schema() -> None:

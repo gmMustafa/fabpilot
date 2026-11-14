@@ -32,7 +32,7 @@ from app.db.session import create_engine
 from app.errors import InvalidQueryError, NotFoundError
 from app.rag import library
 from app.rag.embeddings import Embedder, build_embedder
-from app.rag.library import DocumentText, IncidentReport
+from app.rag.library import DocumentText, FaultFilter, IncidentList, IncidentReport
 from app.rag.retrieval import Filters, RetrievedChunk, search
 
 logger = logging.getLogger("docs_mcp")
@@ -42,6 +42,7 @@ Knowledge base of the FabPilot demo plant (SYNTHETIC documents): machine manuals
 standard operating procedures (SOP-...) and past incident reports (INC-...).
 Workflow: search_docs -> cite hits as their `citation` (e.g. [MAN-PMP-001 §5.1]) ->
 get_document(doc_id, section) for the full section when you need all of it (procedures!).
+For "which / how many incidents" use list_incident_reports (complete), not search_docs (ranked).
 Past incidents are analogies, not proof: the current machine data decides.
 """
 
@@ -106,9 +107,14 @@ def create_server(
     ) -> list[RetrievedChunk]:
         """Search manuals, SOPs and past incident reports (hybrid: meaning + exact terms).
 
-        Each hit is ONE section chunk with its `citation` (quote it as-is), title and text. Use
-        exact alarm codes and sensor names when you have them; describe symptoms otherwise.
-        A hit may be part of a longer section: get_document returns all of it."""
+        Returns the k chunks MOST SIMILAR to the query, each with its `citation` (quote it
+        as-is), title and text. Use exact alarm codes and sensor names when you have them;
+        describe symptoms otherwise.
+        - One hit = ONE chunk of a section. Before recommending a procedure or quoting its
+          steps, read the whole section with get_document: a chunk may miss steps.
+        - Ranked, not complete: for "which / how many incidents" questions (on a machine, of a
+          fault, false alarms) use list_incident_reports instead. machine_type filters by TYPE;
+          there is no machine-code filter here."""
         state = ctx.request_context.lifespan_context
         filters = Filters(machine_type=machine_type, source_types=tuple(source_types or ()))
         return await search(state.engine, state.embedder, query, filters=filters, k=k)
@@ -140,10 +146,52 @@ def create_server(
         root_cause, date) and its narrative per section (Summary, Timeline, Evidence ...).
 
         Past incidents are ANALOGIES: they show what a pattern meant before, not what it means
-        now. Compare their Evidence with the current machine data before concluding."""
+        now. Compare their Evidence with the current machine data before concluding. To find
+        which reports exist for a machine or fault, use list_incident_reports first."""
         with _as_tool_errors():
             async with ctx.request_context.lifespan_context.engine.connect() as conn:
                 return await library.get_incident_report(conn, doc_id)
+
+    @server.tool(annotations=READ_ONLY)
+    async def list_incident_reports(
+        ctx: Context[AppState],
+        machine: Annotated[
+            str | None, Field(description="Machine code, e.g. 'M-09'", pattern=r"^M-\d{2}$")
+        ] = None,
+        machine_type: Annotated[
+            MachineType | None, Field(description="Only incidents on this machine type")
+        ] = None,
+        fault: Annotated[
+            FaultFilter | None,
+            Field(
+                description="A simulated fault type, or 'none' for causes outside those six "
+                "(soft foot, air leak, heater band, ...)"
+            ),
+        ] = None,
+        false_alarm: Annotated[
+            bool | None, Field(description="true: only false alarms; false: only real faults")
+        ] = None,
+        limit: Annotated[
+            int,
+            Field(ge=1, le=library.MAX_INCIDENTS, description="Max reports, newest first"),
+        ] = 50,
+    ) -> IncidentList:
+        """List past incident reports by their facts: machine, machine type, fault, false alarm.
+
+        COMPLETE, not ranked: use it for "which / how many" questions ("false alarms on M-09",
+        "has this sensor failed before?"). Each entry has the report's date, machine, fault,
+        false_alarm and root_cause; read one in full with get_incident_report. `total_count` and
+        `truncated` say whether the list is cut."""
+        with _as_tool_errors():
+            async with ctx.request_context.lifespan_context.engine.connect() as conn:
+                return await library.list_incident_reports(
+                    conn,
+                    machine=machine,
+                    machine_type=machine_type,
+                    fault=fault,
+                    false_alarm=false_alarm,
+                    limit=limit,
+                )
 
     return server
 

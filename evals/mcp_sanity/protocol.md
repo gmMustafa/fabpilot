@@ -119,6 +119,29 @@ the key claims were checked against the DB and the code:
 - Semi-blind only: Claude Code in the repo root again (one conversation per question, MCP tools only,
   but CLAUDE.md and the git status in context; the model named the 4.3 check three times).
 
+### Run 4: after 4.4, blind (TODO(Mustafa))
+
+Same 8 questions, word for word, one new conversation each, in **Claude Desktop** (restarted after
+the 4.4 commits, so it runs the new code: 9 tools). Same data as Run 3 (the dev DB ending
+2026-11-13 ~11:50), so only the tools changed. Judge every row yourself; if a model writes a row,
+mark it and re-check its claims.
+
+The before/after question per finding: F1 (counting), F2/F10/F13/F16 (data end), F5 (limit),
+F11 (read the SOP), F12 (truncated list): gone, better, or still there?
+
+| # | Tools actually called (order, notable args) | Errors / retries | Cited sources? | Conclusion | Tool use 0-2 | Answer 0-2 | F-numbers: gone / still there |
+|---|---|---|---|---|---|---|---|
+| 1 | | | | | | | |
+| 2 | | | | | | | |
+| 3 | | | | | | | |
+| 4 | | | | | | | |
+| 5 | | | | | | | |
+| 6 | | | | | | | |
+| 7 | | | | | | | |
+| 8 | | | | | | | |
+
+**Totals (Run 4):** tool use __/16, answers __/16 (Run 3, re-checked: 12/16, 13/16).
+
 ## Findings from the exploratory runs, 2026-11-14
 
 Not valid blind runs (Claude Code in the repo root, see Setup), but the observations are real

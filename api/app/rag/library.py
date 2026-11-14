@@ -9,13 +9,13 @@ Like plant_data: no HTTP, no MCP here; adapters map NotFoundError / InvalidQuery
 
 from dataclasses import dataclass
 from datetime import date
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import ColumnElement, any_, func, literal, select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from app.db.models import KbChunk, KbDocument, SourceType
+from app.db.models import FaultType, KbChunk, KbDocument, MachineType, SourceType
 from app.errors import InvalidQueryError, NotFoundError
 
 
@@ -100,6 +100,98 @@ class IncidentReport(BaseModel):
     false_alarm: bool
     root_cause: str
     sections: dict[str, str]  # "Evidence" -> its text
+
+
+MAX_INCIDENTS = 100  # 30 today; the cap protects the model's context when the corpus grows
+NO_FAULT = "none"  # filter value for reports whose cause the simulator can't produce (no `fault`)
+FaultFilter = FaultType | Literal["none"]
+
+
+class IncidentSummary(BaseModel):
+    doc_id: str
+    date: date
+    machine: str
+    title: str
+    fault: str | None
+    false_alarm: bool
+    root_cause: str
+
+
+class IncidentList(BaseModel):
+    """Same contract as the alarm log (4.4a): total_count + truncated, so a cut list says so."""
+
+    total_count: int
+    truncated: bool
+    reports: list[IncidentSummary]  # newest first
+
+
+def incident_filters(
+    machine: str | None, fault: FaultFilter | None, false_alarm: bool | None
+) -> list[ColumnElement[bool]]:
+    """WHERE conditions on the incident fields in documents.meta (JSONB). None = no filter.
+
+    - machine:     the report's machine code, e.g. "M-09"
+    - fault:       a FaultType value -> reports with exactly that fault;
+                   "none" (NO_FAULT) -> reports WITHOUT a fault key (a cause the simulator can't
+                   produce: soft foot, air leak, ...). The key is ABSENT, not null (3.1 convention)
+    - false_alarm: True / False -> reports with that flag
+
+    The JSONB operators, in SQLAlchemy:
+      KbDocument.meta["machine"].astext == "M-09"       ->  meta->>'machine' = 'M-09'
+      KbDocument.meta.has_key("fault")                  ->  meta ? 'fault'
+      KbDocument.meta["false_alarm"].as_boolean()       ->  (meta->'false_alarm')::boolean
+    """
+    conditions: list[ColumnElement[bool]] = []
+    if machine is not None:
+        conditions.append(KbDocument.meta["machine"].astext == machine)
+    if fault == NO_FAULT:
+        conditions.append(~KbDocument.meta.has_key("fault"))  # absent key, not a null value
+    elif isinstance(fault, FaultType):  # == doesn't narrow the union for mypy; isinstance does
+        conditions.append(KbDocument.meta["fault"].astext == fault.value)
+    if false_alarm is not None:
+        conditions.append(KbDocument.meta["false_alarm"].as_boolean() == false_alarm)
+    return conditions
+
+
+async def list_incident_reports(
+    conn: AsyncConnection,
+    *,
+    machine: str | None = None,
+    machine_type: MachineType | None = None,
+    fault: FaultFilter | None = None,
+    false_alarm: bool | None = None,
+    limit: int = 50,
+) -> IncidentList:
+    """Past incident reports matching ALL given filters, newest first. For "which / how many"
+    questions: search ranks by similarity and can miss reports; this list is complete."""
+    if not 1 <= limit <= MAX_INCIDENTS:
+        raise InvalidQueryError(f"limit must be between 1 and {MAX_INCIDENTS}, got {limit}")
+    conditions = [KbDocument.source_type == SourceType.INCIDENT_REPORT]
+    conditions += incident_filters(machine, fault, false_alarm)
+    if machine_type is not None:
+        conditions.append(literal(machine_type.value) == any_(KbDocument.machine_types))
+    total = (
+        await conn.execute(select(func.count()).select_from(KbDocument).where(*conditions))
+    ).scalar_one()
+    rows = await conn.execute(
+        select(KbDocument.doc_id, KbDocument.effective_date, KbDocument.title, KbDocument.meta)
+        .where(*conditions)
+        .order_by(KbDocument.effective_date.desc(), KbDocument.doc_id.desc())
+        .limit(limit)
+    )
+    reports = [
+        IncidentSummary(
+            doc_id=doc_id,
+            date=day,
+            machine=meta["machine"],
+            title=title,
+            fault=meta.get("fault"),
+            false_alarm=meta["false_alarm"],
+            root_cause=meta["root_cause"],
+        )
+        for doc_id, day, title, meta in rows
+    ]
+    return IncidentList(total_count=total, truncated=total > len(reports), reports=reports)
 
 
 async def _document(conn: AsyncConnection, doc_id: str) -> Any:
