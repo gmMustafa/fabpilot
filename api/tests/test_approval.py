@@ -76,7 +76,8 @@ def test_an_edit_needs_the_edited_draft() -> None:
 def test_an_edit_is_checked_like_the_models_draft() -> None:
     errors = check_approval(Approval(action="edit", by=ME, edited=unsafe_edit()), paused_state())
     assert errors == [
-        "your edit: SOP-GEN-004 has 1 hold point(s) (⚠ STOP) but only 0 safety action(s)"
+        "your edit: hold point at step 3 (⚠ STOP) is not covered by a safety action; "
+        "mark the action for step 3 as safety=true"
     ]
 
 
@@ -135,7 +136,9 @@ async def test_an_unsafe_edit_is_sent_back_then_a_good_one_is_saved() -> None:
     state = await resume(graph, Approval(action="edit", by=ME, edited=unsafe_edit()), "t1")
     assert state.work_order_id is None and store.saved == []  # still paused
     pending = await pending_approval(graph, "t1")
-    assert pending is not None and pending["errors"][0].startswith("your edit: SOP-GEN-004 has 1")
+    assert pending is not None and pending["errors"][0].startswith(
+        "your edit: hold point at step 3"
+    )
 
     better = draft(priority=WorkOrderPriority.HIGH)
     state = await resume(graph, Approval(action="edit", by=ME, edited=better), "t1")

@@ -216,6 +216,8 @@ def report(state: AgentState, now: Now = _utcnow) -> dict[str, Any]:
             "",
             f"DRAFT work order (not saved; needs approval): {wo.title}",
             f"  priority {wo.priority.value} | {wo.duration} | {wo.staff} | follows {wo.sop_ref}",
+            # From the SOP's §2 by code (5.5): before the steps, where a technician reads first.
+            *(f"  SAFETY ({wo.sop_ref} §2): {note}" for note in wo.safety_notes),
             *(
                 f"  {i}. {'[SAFETY] ' if a.safety else ''}{a.text} ({a.sop_step})"
                 for i, a in enumerate(wo.actions, start=1)
@@ -224,10 +226,14 @@ def report(state: AgentState, now: Now = _utcnow) -> dict[str, Any]:
         if wo.parts:
             lines.append("  parts: " + ", ".join(f"{p.quantity}x {p.part_no}" for p in wo.parts))
         lines.append(f"  done when: {wo.verification}")
+        lines += [f"  ⚠ Note for the reviewer: {w}" for w in wo.reviewer_warnings]
     elif state.work_order_errors:
         lines += ["", "No work order drafted: " + "; ".join(state.work_order_errors)]
-    if h.citations:
-        lines += ["", "Sources: " + ", ".join(h.citations)]
+    sources = list(h.citations)
+    if wo is not None and not any(wo.sop_ref in c for c in sources):
+        sources.append(f"[{wo.sop_ref}]")  # the order follows it: it IS a source (5.5)
+    if sources:
+        lines += ["", "Sources: " + ", ".join(sources)]
     lines += ["", usage_line(state)]
     return {"answer": "\n".join(lines)}
 

@@ -84,7 +84,10 @@ def test_a_dropped_hold_point() -> None:
     errors = check_work_order(
         draft(actions=unsafe), VERIFICATION_SOP, SOP_TEXT, Category.SENSOR_FAULT
     )
-    assert errors == ["SOP-GEN-004 has 1 hold point(s) (⚠ STOP) but only 0 safety action(s)"]
+    assert errors == [
+        "hold point at step 3 (⚠ STOP) is not covered by a safety action; "
+        "mark the action for step 3 as safety=true"
+    ]
 
 
 def test_a_sensor_fault_must_be_verified_first() -> None:

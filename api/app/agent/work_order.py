@@ -13,13 +13,13 @@ from typing import Any
 from app.agent.budget import DEFAULT_BUDGET, RunBudget, billed
 from app.agent.guardrails import cited_doc_ids
 from app.agent.nodes import call_as_evidence
+from app.agent.procedure import check_procedure, parse_procedure, safety_notes
 from app.agent.state import AgentState, Category, WorkOrderDraft
 from app.agent.tools import Tools
 from app.gateway.structured import ChatModel, Spend, StructuredOutputError, chat_structured
 from app.gateway.types import ChatMessage, LLMError
 
 VERIFICATION_SOP = "SOP-GEN-004"  # sensor verification: what a suspected false alarm needs first
-HOLD_POINT = "⚠ STOP"
 WORK_ORDER_TOKENS = 3000
 MAX_WORK_ORDER_RETRIES = 1
 
@@ -68,9 +68,9 @@ def check_work_order(
          -> f"sop_ref {wo.sop_ref!r} is not the SOP you were given ({sop_id})"
     2. every part number appears verbatim in sop_text
          -> f"part {p.part_no!r} is not in {sop_id}'s parts table; use only listed part numbers"
-    3. the SOP's hold points survive: if sop_text contains N occurrences of HOLD_POINT, the draft
-       needs at least N actions with safety=True
-         -> f"{sop_id} has {n} hold point(s) (⚠ STOP) but only {k} safety action(s)"
+    3. every hold point (⚠ STOP) is covered by a safety action AT ITS LOCATION: the errors of
+       check_procedure (5.5). Until 5.5 this was a COUNT (N hold points -> N safety actions),
+       which passed a draft that marked a harmless step as safety and dropped the lockout.
     4. a SENSOR_FAULT order follows VERIFICATION_SOP (verify the sensor before touching the machine)
          -> f"a suspected sensor fault needs {VERIFICATION_SOP} first, not {wo.sop_ref}"
     """
@@ -87,18 +87,23 @@ def check_work_order(
                 f"part {p.part_no!r} is not in {sop_id}'s parts table; use only listed part numbers"
             )
 
-    # Rule 3: Preserve SOP hold points
-    n = sop_text.count(HOLD_POINT)
-    k = sum(a.safety for a in wo.actions)
-
-    if k < n:
-        errors.append(f"{sop_id} has {n} hold point(s) (⚠ STOP) but only {k} safety action(s)")
+    # Rule 3: every hold point covered by a safety action at its location (5.5; was a count)
+    errors += check_procedure(wo, parse_procedure(sop_text), sop_id)[0]
 
     # Rule 4: Verify sensor faults first
     if category is Category.SENSOR_FAULT and wo.sop_ref != VERIFICATION_SOP:
         errors.append(f"a suspected sensor fault needs {VERIFICATION_SOP} first, not {wo.sop_ref}")
 
     return errors
+
+
+def with_code_fields(wo: WorkOrderDraft, sop_id: str, sop_text: str) -> WorkOrderDraft:
+    """The parts of the order that are POLICY, set by code over whatever the model sent: the
+    SOP's §2 safety notes verbatim, and the reviewer warnings (steps the draft left out)."""
+    warnings = check_procedure(wo, parse_procedure(sop_text), sop_id)[1]
+    return wo.model_copy(
+        update={"safety_notes": safety_notes(sop_text), "reviewer_warnings": warnings}
+    )
 
 
 async def draft_work_order(
@@ -152,7 +157,7 @@ async def draft_work_order(
             return {
                 "sop_id": sop_id,
                 "sop_text": sop_text,
-                "work_order": out.value,
+                "work_order": with_code_fields(out.value, sop_id, sop_text),
                 **billed(state, spend),
             }
     return {"sop_id": sop_id, "work_order_errors": errors, **billed(state, spend)}

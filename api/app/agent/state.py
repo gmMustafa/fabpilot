@@ -12,6 +12,7 @@ from enum import StrEnum
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
+from pydantic.json_schema import SkipJsonSchema
 
 from app.db.models import WorkOrderPriority
 
@@ -79,6 +80,10 @@ class WorkOrderDraft(BaseModel):
     duration: str = Field(description="From the SOP's scope, e.g. '30 min'")
     staff: str = Field(description="From the SOP's scope, e.g. '1 technician'")
     verification: str = Field(description="The SOP's acceptance criteria, in one or two lines")
+    # Filled by CODE after validation (5.5), never by the model: SkipJsonSchema hides them from
+    # the schema it sees, and anything it sends anyway is overwritten.
+    safety_notes: SkipJsonSchema[list[str]] = Field(default_factory=list)  # SOP §2, verbatim
+    reviewer_warnings: SkipJsonSchema[list[str]] = Field(default_factory=list)  # e.g. missing steps
 
 
 class Approval(BaseModel):

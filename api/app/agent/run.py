@@ -182,7 +182,10 @@ async def _main(args: argparse.Namespace) -> int:
                 if pending is None:
                     print(f"Run {args.resume} is not waiting for a decision.")
                     return 1
-                print(WorkOrderDraft.model_validate(pending["work_order"]).title)
+                draft = WorkOrderDraft.model_validate(pending["work_order"])
+                print(draft.title)
+                for warning in draft.reviewer_warnings:  # decide WITH them in view (5.5)
+                    print(f"  ⚠ Note for the reviewer: {warning}")
                 final = await decide(graph, args.resume)
                 print(outcome(final) if final else paused_hint(args.resume))
                 return 0
