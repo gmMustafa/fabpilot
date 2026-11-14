@@ -6,7 +6,14 @@ from datetime import timedelta
 import pytest
 
 from app.gateway.cache import CachedAnswer, CachePolicy, cache_key
-from app.gateway.gateway import Action, GatewayConfig, LLMGateway, backoff_delay, classify
+from app.gateway.gateway import (
+    TRUNCATION_FALLBACK_MIN,
+    Action,
+    GatewayConfig,
+    LLMGateway,
+    backoff_delay,
+    classify,
+)
 from app.gateway.types import (
     AllModelsFailedError,
     AuthError,
@@ -17,6 +24,7 @@ from app.gateway.types import (
     ConnectionFailedError,
     LLMTimeoutError,
     ModelUnavailableError,
+    OutputTruncatedError,
     ProviderError,
     QuotaExhaustedError,
     RateLimitedError,
@@ -98,6 +106,15 @@ MSG = [ChatMessage(role="user", content="hi")]
         (ModelUnavailableError("m", status=404), Action.NEXT_MODEL),
         (QuotaExhaustedError("q", status=429), Action.FAIL),  # account-wide: all models fail
         (BadRequestError("b", status=400), Action.FAIL),
+        # 5.2b: a generous budget and still no answer -> this model over-thinks, try the next;
+        # a tiny budget -> our misconfiguration (2.1b), a fallback would hide it.
+        (OutputTruncatedError("t", status=200, max_tokens=4000), Action.NEXT_MODEL),
+        (
+            OutputTruncatedError("t", status=200, max_tokens=TRUNCATION_FALLBACK_MIN),
+            Action.NEXT_MODEL,
+        ),
+        (OutputTruncatedError("t", status=200, max_tokens=20), Action.FAIL),
+        (OutputTruncatedError("t", status=200), Action.FAIL),  # budget unknown -> fail closed
         (AuthError("a", status=401), Action.FAIL),
         (ProviderError("something new"), Action.FAIL),  # unknown -> fail closed
     ],
@@ -399,3 +416,13 @@ async def test_a_broken_cache_is_a_miss_not_a_failure(caplog: pytest.LogCaptureF
     assert response.text == "live answer" and provider.calls == ["a"]
     assert "Prompt cache lookup failed" in caplog.text
     assert "Prompt cache store failed" in caplog.text
+
+
+async def test_an_over_thinking_model_falls_back_to_the_next() -> None:
+    """Live run 5.2b: nemotron spent 4000 reasoning tokens without an answer; gemma (reasoning
+    off by default) was never tried because truncation used to be FAIL."""
+    over_thought = OutputTruncatedError("no answer", status=200, max_tokens=4000)
+    answer = Completion("an answer", "b:free", 10, 5, finish_reason="stop")
+    gateway, provider, _ = make({"a:free": [over_thought], "b:free": [answer]})
+    r = await gateway.chat(MSG, max_tokens=4000)
+    assert r.text == "an answer" and provider.calls == ["a:free", "b:free"]

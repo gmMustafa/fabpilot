@@ -6,7 +6,7 @@ retry/fallback logic never needs to know which HTTP library or vendor is underne
 
 import uuid
 from dataclasses import dataclass, field
-from typing import Literal, Protocol
+from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel
 
@@ -155,8 +155,15 @@ class BadRequestError(ProviderError):
 
 class OutputTruncatedError(BadRequestError):
     """200 OK but no answer: max_tokens ran out before any content (typically a reasoning model
-    spent the whole budget thinking). Our parameter is too small, so it FAILs like a bad request
-    instead of falling back: a fallback would hide the misconfigured budget."""
+    spent the whole budget thinking).
+
+    Two causes, told apart by the budget (see classify): a SMALL budget is our misconfiguration
+    (2.1b: max_tokens=20) -> FAIL, a fallback would hide it; a GENEROUS budget means this model
+    over-thinks (5.2b: 1500, then 4000 reasoning tokens, no answer) -> try the next model."""
+
+    def __init__(self, message: str, *, max_tokens: int | None = None, **kw: Any) -> None:
+        super().__init__(message, **kw)
+        self.max_tokens = max_tokens
 
 
 class AuthError(ProviderError):

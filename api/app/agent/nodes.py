@@ -15,8 +15,8 @@ from pydantic import BaseModel, Field
 
 from app.agent.state import AgentState, Evidence, Intent
 from app.agent.tools import ToolCallError, Tools
-from app.gateway.structured import ChatModel, chat_structured
-from app.gateway.types import ChatMessage
+from app.gateway.structured import ChatModel, StructuredOutputError, chat_structured
+from app.gateway.types import ChatMessage, LLMError
 
 INVESTIGATION_WINDOW = timedelta(days=3)
 ALARM_LIMIT = 200  # the tool's maximum: a truncated log would hide the onset (F12)
@@ -24,6 +24,10 @@ DOC_HITS = 6
 MAX_FOLLOW_UPS = 2
 
 _MACHINE = re.compile(r"\bM-\d{2}\b")
+# Output budgets. Reasoning models spend most tokens "thinking" before they answer: 1500 was
+# not enough for the hypothesis in the first live run (5.2b, OutputTruncatedError).
+TRIAGE_TOKENS = 800
+
 # Deterministic intent rules, checked in this order. A wrong intent only changes which documents
 # are searched first; the hypothesis still sees all the evidence.
 _INTENT_RULES: list[tuple[Intent, re.Pattern[str]]] = [
@@ -58,19 +62,24 @@ async def triage(state: AgentState, tools: Tools, gateway: ChatModel) -> dict[st
 
     machines = (await tools.call("sensors", "list_machines", {})).get("result", [])
     plant = "\n".join(f"{m['code']}: {m['name']} ({m['type']}, {m['line']})" for m in machines)
-    out = await chat_structured(
-        gateway,
-        [
-            ChatMessage(
-                role="system",
-                content="You map a maintenance question to ONE machine of this plant, or none.",
-            ),
-            ChatMessage(role="user", content=f"Machines:\n{plant}\n\nQuestion: {state.question}"),
-        ],
-        TriageOut,
-        purpose="agent.triage",
-        max_tokens=300,
-    )
+    try:
+        out = await chat_structured(
+            gateway,
+            [
+                ChatMessage(
+                    role="system",
+                    content="You map a maintenance question to ONE machine of this plant, or none.",
+                ),
+                ChatMessage(
+                    role="user", content=f"Machines:\n{plant}\n\nQuestion: {state.question}"
+                ),
+            ],
+            TriageOut,
+            purpose="agent.triage",
+            max_tokens=TRIAGE_TOKENS,
+        )
+    except (LLMError, StructuredOutputError) as e:
+        return {"machine": None, "llm_error": f"triage: {e}"}
     known = {m["code"] for m in machines}
     machine = (
         out.value.machine if out.value.machine in known else None
@@ -106,7 +115,7 @@ def doc_query(question: str, evidence: Evidence) -> str:
     return " ".join([question, *terms])
 
 
-async def _call(
+async def call_as_evidence(
     tools: Tools,
     errors: list[str],
     server: Literal["sensors", "docs"],
@@ -131,7 +140,9 @@ async def investigate(
     if state.machine is None:
         return {}
     errors: list[str] = []
-    detail = await _call(tools, errors, "sensors", "get_machine", {"machine": state.machine})
+    detail = await call_as_evidence(
+        tools, errors, "sensors", "get_machine", {"machine": state.machine}
+    )
     if detail is None:
         return {"evidence": Evidence(errors=errors)}
 
@@ -140,9 +151,13 @@ async def investigate(
     start = end - INVESTIGATION_WINDOW
     window = {"machine": state.machine, "start": start.isoformat(), "end": end.isoformat()}
     alarm_log, anomalies, incidents = await asyncio.gather(
-        _call(tools, errors, "sensors", "get_alarm_log", {**window, "limit": ALARM_LIMIT}),
-        _call(tools, errors, "sensors", "detect_anomalies", window),
-        _call(tools, errors, "docs", "list_incident_reports", {"machine": state.machine}),
+        call_as_evidence(
+            tools, errors, "sensors", "get_alarm_log", {**window, "limit": ALARM_LIMIT}
+        ),
+        call_as_evidence(tools, errors, "sensors", "detect_anomalies", window),
+        call_as_evidence(
+            tools, errors, "docs", "list_incident_reports", {"machine": state.machine}
+        ),
     )
     evidence = Evidence(
         machine=detail, alarm_log=alarm_log, anomalies=anomalies, incidents=incidents, errors=errors
@@ -154,7 +169,7 @@ async def investigate(
     }
     if state.intent is Intent.PROCEDURE:
         search = {**search, "query": state.question, "source_types": ["sop"]}
-    hits = await _call(tools, errors, "docs", "search_docs", search)
+    hits = await call_as_evidence(tools, errors, "docs", "search_docs", search)
     evidence.docs = (hits or {}).get("result", [])
     return {
         "window_start": start,

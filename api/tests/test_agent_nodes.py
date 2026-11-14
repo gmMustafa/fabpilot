@@ -21,15 +21,56 @@ from app.testing import ScriptedChat
 DATA_END = "2026-11-13T11:50:40Z"
 NOW = datetime(2026, 11, 14, 13, 0, tzinfo=UTC)
 
-MACHINE = {"code": "M-08", "type": "compressor", "last_reading_at": DATA_END, "sensors": []}
+MACHINE = {
+    "code": "M-08",
+    "name": "Screw Compressor",
+    "line": "Line 3",
+    "type": "compressor",
+    "status": "running",
+    "last_reading_at": DATA_END,
+    "sensors": [],
+}
+# Shaped like the REAL tool results (a fake must match the contract it stands in for).
 ALARMS = {
     "total_count": 2,
     "truncated": False,
-    "alarms": [{"code": "TEMP-CRIT"}, {"code": "TEMP-HIGH"}],
+    "alarms": [
+        {
+            "code": "TEMP-CRIT",
+            "sensor": "discharge_temp",
+            "machine": "M-08",
+            "time": "2026-11-12T19:27:50Z",
+            "cleared_at": None,
+            "severity": "critical",
+            "message": "discharge_temp 100.1 °C above limit 100.0 °C",
+        },
+        {
+            "code": "TEMP-HIGH",
+            "sensor": "discharge_temp",
+            "machine": "M-08",
+            "time": "2026-11-12T05:59:10Z",
+            "cleared_at": None,
+            "severity": "warning",
+            "message": "discharge_temp 95.1 °C above limit 95.0 °C",
+        },
+    ],
 }
 ANOMALIES = {
-    "findings": [{"sensor": "discharge_temp", "kind": "trend", "isolated": True}],
-    "quiet_sensors": ["motor_current"],
+    "findings": [
+        {
+            "sensor": "discharge_temp",
+            "kind": "trend",
+            "start": "2026-11-10T11:50:00Z",
+            "end": "2026-11-13T11:50:00Z",
+            "magnitude": 76.1,
+            "isolated": True,
+            "summary": "discharge_temp median moved up by 15.2 °C (+76 % of its normal band)",
+        }
+    ],
+    "quiet_sensors": ["discharge_pressure", "motor_current", "motor_vibration", "inlet_filter_dp"],
+    "checks_not_possible": [
+        {"check": "moves_when_stopped", "reason": "only 0 min of settled standstill"}
+    ],
 }
 
 

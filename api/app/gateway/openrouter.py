@@ -173,6 +173,7 @@ def _completion_or_raise(
         raise OutputTruncatedError(
             f"no answer within max_tokens={max_tokens} "
             f"({reasoning} reasoning tokens used); raise max_tokens for reasoning models",
+            max_tokens=max_tokens,
             model=model,
             status=200,
         )

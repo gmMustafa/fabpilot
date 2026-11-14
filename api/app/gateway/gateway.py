@@ -35,6 +35,7 @@ from app.gateway.types import (
     LLMResponse,
     LLMTimeoutError,
     ModelUnavailableError,
+    OutputTruncatedError,
     ProviderError,
     QuotaExhaustedError,
     RateLimitedError,
@@ -50,6 +51,11 @@ class Action(StrEnum):
     FAIL = "fail"  # our side / account-wide: stop, don't waste quota
 
 
+# A budget this large is not a misconfiguration: a model that still gives no answer over-thinks
+# (5.2b: nemotron used 1500, then 4000 reasoning tokens; gemma doesn't reason by default).
+TRUNCATION_FALLBACK_MIN = 1000
+
+
 def classify(error: ProviderError, max_delay: float) -> Action:
     """Decide what to do after a failed request.
 
@@ -59,6 +65,9 @@ def classify(error: ProviderError, max_delay: float) -> Action:
         no retry_after, or retry_after <= max_delay              -> RETRY_SAME
         retry_after > max_delay (we won't wait that long)        -> NEXT_MODEL
     - ModelUnavailableError                                       -> NEXT_MODEL
+    - OutputTruncatedError (a BadRequestError, so checked FIRST):
+        max_tokens >= TRUNCATION_FALLBACK_MIN (this model over-thinks) -> NEXT_MODEL
+        smaller or unknown budget (our misconfiguration)             -> FAIL
     - QuotaExhaustedError, BadRequestError, AuthError             -> FAIL
     - anything else (an unknown ProviderError subclass)           -> FAIL
       (fail closed: when unsure, don't burn quota on blind retries)
@@ -80,6 +89,11 @@ def classify(error: ProviderError, max_delay: float) -> Action:
 
     if isinstance(error, ModelUnavailableError):
         return Action.NEXT_MODEL
+
+    # Before the BadRequestError check below: OutputTruncatedError IS a BadRequestError.
+    if isinstance(error, OutputTruncatedError):
+        generous = error.max_tokens is not None and error.max_tokens >= TRUNCATION_FALLBACK_MIN
+        return Action.NEXT_MODEL if generous else Action.FAIL
 
     if isinstance(
         error,

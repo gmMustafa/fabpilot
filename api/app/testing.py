@@ -112,7 +112,7 @@ class ScriptedChat:
     class Reply:
         text: str
 
-    def __init__(self, *answers: str) -> None:
+    def __init__(self, *answers: str | Exception) -> None:
         self._answers = list(answers)
         self.conversations: list[list[Any]] = []
 
@@ -120,4 +120,7 @@ class ScriptedChat:
         self.conversations.append(list(messages))
         if not self._answers:
             raise AssertionError("ScriptedChat: an LLM request the test didn't expect")
-        return ScriptedChat.Reply(self._answers.pop(0))
+        answer = self._answers.pop(0)
+        if isinstance(answer, Exception):  # e.g. an LLMError: test the failure paths
+            raise answer
+        return ScriptedChat.Reply(answer)
