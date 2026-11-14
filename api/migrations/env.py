@@ -54,7 +54,16 @@ def include_object(
         and name is not None
         and name.endswith("_time_idx")
     )
-    return not is_timescale_default_index
+    # LangGraph's checkpoint tables (5.4) are created and migrated by the library itself
+    # (AsyncPostgresSaver.setup(), with its own checkpoint_migrations table). Not ours: without
+    # this, autogenerate would emit DROP TABLE for every paused agent run.
+    is_langgraph_table = (
+        type_ == "table" and reflected and compare_to is None and (name in LANGGRAPH_TABLES)
+    )
+    return not (is_timescale_default_index or is_langgraph_table)
+
+
+LANGGRAPH_TABLES = {"checkpoints", "checkpoint_blobs", "checkpoint_writes", "checkpoint_migrations"}
 
 
 # ALLOW-list of schemas autogenerate may manage. Needed once a model lives outside `public`

@@ -118,6 +118,7 @@ async def test_approve_saves_exactly_once_with_who_and_when() -> None:
     saved = store.saved[0]
     assert (saved.status, saved.by, saved.at, saved.draft) == ("approved", ME, NOW, draft())
     assert saved.machine == "M-08" and state.llm_requests == 2  # deciding cost no request
+    assert saved.thread_id == "t1"  # the idempotency key comes from the run's config
     assert await pending_approval(graph, "t1") is None
 
 
@@ -171,6 +172,10 @@ def test_every_state_field_survives_the_checkpoint_serializer() -> None:
         value = getattr(state, field)
         restored = serde.loads_typed(serde.dumps_typed(value))
         assert restored == value and type(restored) is type(value), field
+    # ...and the state object itself: LangGraph stores the graph INPUT (an AgentState) as a
+    # checkpoint write; the field loop above missed that (5.4 live run, --pending warned).
+    whole = serde.loads_typed(serde.dumps_typed(state))
+    assert whole == state and type(whole) is AgentState
 
 
 async def test_nothing_to_approve_means_no_pause() -> None:

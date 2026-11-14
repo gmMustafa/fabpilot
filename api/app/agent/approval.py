@@ -32,6 +32,7 @@ from app.agent.work_order import check_work_order
 class Decision:
     """Everything save_work_order hands to the store: the draft AS DECIDED, and by whom."""
 
+    thread_id: str  # the agent run: the idempotency key (5.4)
     machine: str
     question: str
     root_cause: str
@@ -46,7 +47,8 @@ class WorkOrderStore(Protocol):
     """Where decided work orders go: Postgres in the app (store.py), a list in tests."""
 
     async def save(self, decision: Decision) -> int:
-        """Persist the decision; return the new work order's id."""
+        """Persist the decision; return the work order's id. IDEMPOTENT per thread_id: saving
+        the same run again returns the existing id (the save node can run twice, 5.4)."""
         ...
 
 
@@ -118,7 +120,7 @@ def route_after_approval(state: AgentState) -> str:
 
 
 async def save_work_order(
-    state: AgentState, store: WorkOrderStore, now: Callable[[], datetime]
+    state: AgentState, store: WorkOrderStore, now: Callable[[], datetime], thread_id: str
 ) -> dict[str, Any]:
     a, h = state.approval, state.hypothesis
     assert a is not None and h is not None and state.work_order is not None
@@ -127,6 +129,7 @@ async def save_work_order(
     note = a.reason or ("edited by the reviewer before approval" if a.action == "edit" else None)
     work_order_id = await store.save(
         Decision(
+            thread_id=thread_id,
             machine=state.machine,
             question=state.question,
             root_cause=h.root_cause,

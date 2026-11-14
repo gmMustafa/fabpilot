@@ -264,6 +264,10 @@ class WorkOrder(Base):
     # The complete document the human decided on (title, SOP, steps, parts, acceptance): an audit
     # must show exactly what was signed, not a reconstruction from actions/parts.
     draft: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    # The agent run (LangGraph thread) that produced it: the idempotency key (5.4). UNIQUE, so a
+    # save that runs twice (crash between commit and checkpoint) can't create a second order.
+    # Nullable: in Postgres, UNIQUE allows any number of NULLs (orders made outside the agent).
+    thread_id: Mapped[str | None] = mapped_column(String(64), unique=True)
     rejected_by: Mapped[str | None] = mapped_column(String(100))
     # The reviewer's words: why it was rejected, or what they changed before approving.
     review_note: Mapped[str | None] = mapped_column(Text)

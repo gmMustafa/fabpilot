@@ -1,5 +1,6 @@
 """SqlWorkOrderStore against a throwaway migrated database: rows, transaction, DB constraints."""
 
+import asyncio
 from collections.abc import AsyncIterator
 from datetime import date
 
@@ -45,6 +46,7 @@ def decision(**kw: object) -> Decision:
         "by": "M. Engineer",
         "at": NOW,
         "note": None,
+        "thread_id": "run-1",
     }
     return Decision(**{**base, **kw})  # type: ignore[arg-type]
 
@@ -90,3 +92,38 @@ async def test_the_database_refuses_a_rejection_without_a_reason(engine: AsyncEn
     with pytest.raises(IntegrityError, match="rejection_recorded"):
         async with engine.begin() as conn:
             await conn.execute(text("UPDATE work_orders SET status = 'rejected'"))
+
+
+# ------------------------------------------------------------------ idempotency (5.4)
+
+
+async def _counts(engine: AsyncEngine) -> tuple[int, int]:
+    async with engine.connect() as conn:
+        orders = await conn.scalar(select(func.count()).select_from(WorkOrder))
+        incidents = await conn.scalar(select(func.count()).select_from(Incident))
+    return int(orders or 0), int(incidents or 0)
+
+
+async def test_saving_the_same_run_twice_returns_the_same_order(engine: AsyncEngine) -> None:
+    """Your TODO (layer 1): the save node ran again after a crash between commit and checkpoint.
+
+    Layer 2 alone would also return the right id, via a FAILED insert: rollback, an ERROR in the
+    Postgres log, and burned sequence numbers. So: the next run's order gets the NEXT id."""
+    store = SqlWorkOrderStore(engine)
+    first = await store.save(decision())
+    assert await store.save(decision()) == first
+    assert await _counts(engine) == (1, 1)  # no second order, and no orphan incident
+    assert await store.save(decision(thread_id="run-2")) == first + 1  # the repeat burned no id
+
+
+async def test_two_saves_at_the_same_moment_still_give_one_order(engine: AsyncEngine) -> None:
+    """Layer 2: both may look before either inserts; UNIQUE(thread_id) lets exactly one win."""
+    store = SqlWorkOrderStore(engine)
+    a, b = await asyncio.gather(store.save(decision()), store.save(decision()))
+    assert a == b and await _counts(engine) == (1, 1)
+
+
+async def test_another_run_gets_its_own_order(engine: AsyncEngine) -> None:
+    store = SqlWorkOrderStore(engine)
+    assert await store.save(decision()) != await store.save(decision(thread_id="run-2"))
+    assert await _counts(engine) == (2, 2)

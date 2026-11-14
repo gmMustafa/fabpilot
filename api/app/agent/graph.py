@@ -58,6 +58,7 @@ Graph = CompiledStateGraph[AgentState, None, AgentState, AgentState]
 # LangGraph moves to an allowlist: unlisted types are BLOCKED here. A new model in AgentState
 # must be added; tests/test_approval.py round-trips a fully populated state to catch that.
 CHECKPOINT_TYPES: tuple[type, ...] = (
+    AgentState,  # the graph INPUT is stored as a checkpoint write too (found in 5.4's --pending)
     Approval,
     Category,
     Evidence,
@@ -154,8 +155,11 @@ def build_graph(
         g.add_edge("report", END)
         return g.compile(checkpointer=checkpointer)
 
-    async def save_work_order(state: AgentState) -> dict[str, Any]:
-        return await approval.save_work_order(state, store, clock)
+    async def save_work_order(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
+        # LangGraph passes the run's config to a node that asks for it (by the parameter name):
+        # the thread_id belongs to the RUN, not to the state, so it comes from there.
+        thread_id = config.get("configurable", {})["thread_id"]
+        return await approval.save_work_order(state, store, clock, str(thread_id))
 
     g.add_node("await_approval", approval.await_approval)
     g.add_node("save_work_order", save_work_order)

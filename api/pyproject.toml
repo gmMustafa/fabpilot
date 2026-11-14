@@ -7,6 +7,7 @@ dependencies = [
     "fastapi>=0.162.5",
     "fastembed>=0.9.1",
     "langgraph>=1.2.22",
+    "langgraph-checkpoint-postgres>=3.2.1",
     "openai>=3.50.0",
     "pgvector>=0.5.1",
     "psycopg[binary]>=3.3.9",
