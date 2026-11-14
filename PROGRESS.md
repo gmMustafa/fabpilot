@@ -29,7 +29,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done (verified, quiz answered, 
 - [x] 3.4 Retrieval eval: 20 questions, recall@5 — hybrid default (hit@5 95 %, MRR 0.82); see evals/retrieval/results.md
 
 ## Phase 4 — MCP servers
-- [ ] 4.1 `sensor-mcp`: `list_machines`, `get_readings`, `get_alarm_log`, `detect_anomalies`
+- [~] 4.1 `sensor-mcp`: `list_machines`, `get_readings`, `get_alarm_log`, `detect_anomalies`
 - [ ] 4.2 `docs-mcp`: `search_docs`, `get_incident_report`
 - [ ] 4.3 Test with MCP Inspector + Claude Desktop / Claude Code
 - [ ] 4.4 Tool descriptions

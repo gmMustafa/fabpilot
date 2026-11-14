@@ -1,0 +1,34 @@
+[project]
+name = "fabpilot-sensor-mcp"
+version = "0.1.0"
+description = "MCP server: FabPilot machines, sensor readings, alarms and anomaly detection as agent tools."
+requires-python = ">=3.12"
+dependencies = [
+    # Reuses the DB layer (models, engine, settings) of the API package. To publish this server
+    # standalone (11.2), that dependency has to be cut first.
+    "fabpilot-api",
+    "mcp>=2.3.0",
+]
+
+[project.scripts]
+sensor-mcp = "sensor_mcp.server:main"
+
+[tool.uv.sources]
+fabpilot-api = { workspace = true }
+
+[build-system]
+requires = ["uv_build>=0.11.6,<0.12.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "sensor_mcp"
+
+# ---------------------------------------------------------------- pytest (run from mcp/sensor_mcp/)
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = "--strict-markers"
+markers = [
+    "integration: needs real services (Postgres via docker compose); deselect with -m 'not integration'",
+]

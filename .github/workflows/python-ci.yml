@@ -51,6 +51,9 @@ jobs:
       - run: uv run ruff check --output-format=github .
       - run: uv run ruff format --check .
       - run: uv run mypy api/app api/tests api/migrations simulator/src simulator/tests evals
+      # Separate run: each package's tests/conftest.py is a top-level module `conftest`, and one
+      # mypy run can hold only one module per name.
+      - run: uv run mypy mcp/sensor_mcp
       # The secret checks again: a local hook can be skipped (--no-verify) or not installed.
       - run: uv run pre-commit run no-openrouter-key --all-files
       - run: uv run pre-commit run no-env-file --all-files
@@ -92,4 +95,7 @@ jobs:
         run: uv run pytest -v
       - name: pytest (simulator)
         working-directory: simulator
+        run: uv run pytest -v
+      - name: pytest (sensor-mcp)
+        working-directory: mcp/sensor_mcp
         run: uv run pytest -v

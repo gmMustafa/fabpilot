@@ -8,7 +8,7 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict
 
-from app.db.models import MachineStatus, MachineType, SensorKind
+from app.db.models import AlarmSeverity, MachineStatus, MachineType, SensorKind
 
 
 class _Out(BaseModel):
@@ -54,6 +54,16 @@ class ReadingsOut(_Out):
     start: datetime
     end: datetime
     points: list[ReadingBucket]
+
+
+class AlarmOut(_Out):
+    time: datetime
+    cleared_at: datetime | None  # None = still active
+    machine: str
+    sensor: str | None  # None = machine-level alarm (e.g. TRIP)
+    code: str  # e.g. "VIB-HIGH"
+    severity: AlarmSeverity
+    message: str
 
 
 class StatsTotals(_Out):
