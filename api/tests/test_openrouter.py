@@ -99,6 +99,14 @@ async def test_success_returns_text_tokens_and_sends_one_request() -> None:
         (400, error(400, "This model's maximum context length is 8192"), {}, BadRequestError, None),
         (401, error(401, "No auth credentials found"), {}, AuthError, None),
         (403, error(403, "Request blocked by guardrail"), {}, AuthError, None),
+        # 5.2b live run: a region block hits only THIS model -> fall back to the next one
+        (
+            403,
+            error(403, "This model is not available in your region."),
+            {},
+            ModelUnavailableError,
+            None,
+        ),
         (402, error(402, "Insufficient credits"), {}, QuotaExhaustedError, None),
         (402, error(402, "In-flight budget"), {"retry-after": "5"}, RateLimitedError, 5.0),
         (404, error(404, "Not found"), {}, ModelUnavailableError, None),
@@ -268,3 +276,23 @@ async def test_partial_answer_cut_by_length_is_returned_and_marked() -> None:
         "length",
         5,
     )
+
+
+# ------------------------------------------------------------------ reasoning control (5.2b)
+
+
+async def test_reasoning_effort_is_sent_in_the_body_when_set() -> None:
+    rec = Recorder(lambda r: httpx2.Response(200, json=completion("OK")))
+    client = httpx2.AsyncClient(transport=httpx2.MockTransport(rec))
+    p = OpenRouterProvider(
+        "sk-or-test", http_client=client, clock=lambda: NOW, reasoning_effort="none"
+    )
+    await p.complete("vendor/model:free", MSG, max_tokens=50, temperature=0.1)
+    assert json.loads(rec.requests[0].content)["reasoning"] == {"effort": "none"}
+
+
+async def test_no_reasoning_field_when_not_set() -> None:
+    """Unset = the model's own default; nothing is sent that a model could reject."""
+    p, rec = provider(lambda r: httpx2.Response(200, json=completion("OK")))
+    await p.complete("vendor/model:free", MSG, max_tokens=50, temperature=0.1)
+    assert "reasoning" not in json.loads(rec.requests[0].content)

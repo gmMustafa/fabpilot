@@ -6,7 +6,7 @@ those references. Code does the arithmetic the model got wrong in Phase 4 (data 
 collapses flapping alarms (F7: ~110 near-identical rows) into one line per code.
 
     F1 ...  anomaly findings            A1 ...  alarms, one line per (code, sensor)
-    Q  ...  quiet sensors               I1 ...  past incident reports (from the list)
+    Q1 ...  quiet sensors             I1 ...  past incident reports (from the list)
     N1 ...  checks that weren't possible D1 ... document hits, with their citation
     X1 ...  follow-up tool results      E1 ...  tool errors
 """
@@ -77,7 +77,9 @@ def render(state: AgentState, now: datetime) -> tuple[str, set[str]]:
         )
     if an:
         lines.append(
-            f"Q quiet sensors (no finding): {', '.join(an.get('quiet_sensors', [])) or 'none'}"
+            # Q1, not "Q": live run 5.2c cited the bare "Q" (the key evidence for a sensor fault:
+            # the neighbours stayed quiet) and the guard rejected it as an unknown id, twice.
+            f"Q1 quiet sensors (no finding): {', '.join(an.get('quiet_sensors', [])) or 'none'}"
         )
     for i, c in enumerate(an.get("checks_not_possible", []), start=1):
         lines.append(f"N{i} not checkable: {c['check']}: {c['reason']}")
@@ -98,5 +100,7 @@ def render(state: AgentState, now: datetime) -> tuple[str, set[str]]:
     for i, e in enumerate(ev.errors, start=1):
         lines.append(f"E{i} tool error: {e}")
 
-    ids = {line.split(" ", 1)[0] for line in lines if line[:1] in "FAIDXEN" and line[1:2].isdigit()}
+    ids = {
+        line.split(" ", 1)[0] for line in lines if line[:1] in "FQAIDXEN" and line[1:2].isdigit()
+    }
     return "\n".join(lines), ids

@@ -24,6 +24,7 @@ def build_gateway(settings: Settings, *, engine: AsyncEngine | None = None) -> L
         base_url=settings.openrouter_base_url,
         connect_timeout=settings.llm_connect_timeout,
         read_timeout=settings.llm_timeout_seconds,
+        reasoning_effort=settings.llm_reasoning_effort,
     )
     config = GatewayConfig(
         models=settings.openrouter_models,

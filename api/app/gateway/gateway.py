@@ -279,7 +279,14 @@ class LLMGateway:
                         )
                     )
                     action = classify(error, cfg.max_delay)
-                    logger.warning("LLM %s failed (%s) -> %s", model, _describe(error), action)
+                    # Log what the gateway DOES, not only what classify suggested: a RETRY_SAME
+                    # past the retry limit moves on, and the old log said "retry_same" anyway
+                    # (misleading while debugging the 5.2b live runs).
+                    if action is Action.RETRY_SAME and retries >= cfg.max_retries_per_model:
+                        decision = f"{action} limit reached ({retries} retries) -> next_model"
+                    else:
+                        decision = str(action)
+                    logger.warning("LLM %s failed (%s) -> %s", model, _describe(error), decision)
                     if action is Action.FAIL:
                         raise
                     if action is Action.NEXT_MODEL or retries >= cfg.max_retries_per_model:

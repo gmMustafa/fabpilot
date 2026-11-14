@@ -46,8 +46,11 @@ class Settings(BaseSettings):
     openrouter_models: Annotated[list[str], NoDecode] = []
     llm_connect_timeout: float = 10.0  # is the server reachable at all?
     llm_timeout_seconds: float = 60.0  # read timeout: is the model still producing output?
-    llm_max_retries: int = 2  # same-model retries for transient errors
+    llm_max_retries: int = 1  # same-model retries (measured 5.2b: 2 starved the 3rd model)
     llm_max_attempts: int = 4  # total requests per gateway call, across all models
+    # OpenRouter `reasoning.effort` for every request; "none" = thinking off where switchable.
+    # Empty = the model's default. (5.2b: free reasoning models over-thought long prompts.)
+    llm_reasoning_effort: str | None = "none"
     llm_deadline_seconds: float = 120.0  # wall clock for one gateway call incl. backoff
     # Prompt cache (2.3): answer repeated requests from Postgres, 0 tokens, ~ms. false = OFF
     # everywhere. TTL: free models change, a months-old answer no longer represents them.

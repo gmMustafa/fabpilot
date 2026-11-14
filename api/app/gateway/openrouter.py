@@ -50,8 +50,15 @@ class OpenRouterProvider:
         read_timeout: float = 60.0,
         http_client: httpx2.AsyncClient | None = None,  # tests inject a MockTransport
         clock: Any = time.time,
+        reasoning_effort: str | None = None,
     ) -> None:
         self._clock = clock
+        # OpenRouter's unified `reasoning` parameter (docs: openrouter.ai/docs, "reasoning
+        # tokens"), sent via extra_body because it isn't part of the OpenAI API. "none" turns
+        # thinking off on models where it's switchable (5.2b: a reasoning model spent 1500, then
+        # 4000 tokens thinking without an answer). Mandatory-reasoning models REJECT "none": keep
+        # them out of OPENROUTER_MODELS when this is set.
+        self._extra_body = {"reasoning": {"effort": reasoning_effort}} if reasoning_effort else None
         self._client = openai.AsyncOpenAI(
             api_key=api_key,
             base_url=base_url,
@@ -83,6 +90,7 @@ class OpenRouterProvider:
                 ),
                 max_tokens=max_tokens,
                 temperature=temperature,
+                extra_body=self._extra_body,
             )
         except openai.APITimeoutError as e:  # subclass of APIConnectionError: check it first
             raise LLMTimeoutError(str(e), model=model) from e
@@ -120,6 +128,10 @@ def map_status_error(
             return ModelUnavailableError(message, **kw)  # observed behaviour, see module doc
         case 400 | 413 | 422:
             return BadRequestError(message, **kw)
+        case 403 if "region" in message.lower():
+            # Observed (5.2b): "This model is not available in your region". Only THIS model is
+            # blocked here; another model works -> fall back, don't fail the whole call.
+            return ModelUnavailableError(message, **kw)
         case 401 | 403:  # 403: permissions, moderation, budget guardrails: none fixed by retrying
             return AuthError(message, **kw)
         case 402:
