@@ -15,7 +15,9 @@ import hashlib
 import math
 import uuid
 from collections.abc import Iterator, Sequence
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import psycopg
 import pytest
@@ -99,3 +101,23 @@ class FakeEmbedder:
 
     def count_tokens(self, text: str) -> int:
         return len(text.split())
+
+
+class ScriptedChat:
+    """A stand-in for LLMGateway in agent tests: plays back answer texts in order, records every
+    conversation it was sent, and fails loudly when called more often than scripted (so a test
+    proves that a code path makes NO request, too)."""
+
+    @dataclass(frozen=True)
+    class Reply:
+        text: str
+
+    def __init__(self, *answers: str) -> None:
+        self._answers = list(answers)
+        self.conversations: list[list[Any]] = []
+
+    async def chat(self, messages: list[Any], **_: Any) -> "ScriptedChat.Reply":
+        self.conversations.append(list(messages))
+        if not self._answers:
+            raise AssertionError("ScriptedChat: an LLM request the test didn't expect")
+        return ScriptedChat.Reply(self._answers.pop(0))
