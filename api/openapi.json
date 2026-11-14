@@ -1,0 +1,2428 @@
+{
+  "components": {
+    "schemas": {
+      "Approval": {
+        "description": "The human's decision on a draft (5.3). Comes from OUTSIDE the agent (CLI, later the API):\nuntrusted input, so it is validated like any other boundary, and an edit is re-checked.",
+        "properties": {
+          "action": {
+            "enum": [
+              "approve",
+              "edit",
+              "reject"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "by": {
+            "description": "Who decided: a name, kept in the work order",
+            "title": "By",
+            "type": "string"
+          },
+          "edited": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WorkOrderDraft"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "required": [
+          "action",
+          "by"
+        ],
+        "title": "Approval",
+        "type": "object"
+      },
+      "ApprovalRequiredEventData": {
+        "properties": {
+          "errors": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "work_order": {
+            "additionalProperties": true,
+            "title": "Work Order",
+            "type": "object"
+          }
+        },
+        "required": [
+          "work_order",
+          "errors"
+        ],
+        "title": "ApprovalRequiredEventData",
+        "type": "object"
+      },
+      "Bucket": {
+        "description": "Allowed aggregation sizes. A fixed ladder (not free text) keeps caching and charts sane.",
+        "enum": [
+          "10s",
+          "1m",
+          "5m",
+          "15m",
+          "1h",
+          "6h",
+          "1d"
+        ],
+        "title": "Bucket",
+        "type": "string"
+      },
+      "CompleteIn": {
+        "properties": {
+          "by": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "By",
+            "type": "string"
+          }
+        },
+        "required": [
+          "by"
+        ],
+        "title": "CompleteIn",
+        "type": "object"
+      },
+      "DecisionOut": {
+        "properties": {
+          "status": {
+            "enum": [
+              "approved",
+              "rejected"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "thread_id": {
+            "title": "Thread Id",
+            "type": "string"
+          },
+          "work_order_id": {
+            "title": "Work Order Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "thread_id",
+          "status",
+          "work_order_id"
+        ],
+        "title": "DecisionOut",
+        "type": "object"
+      },
+      "DoneEventData": {
+        "properties": {
+          "status": {
+            "enum": [
+              "running",
+              "paused",
+              "done",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "thread_id": {
+            "title": "Thread Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "thread_id",
+          "status"
+        ],
+        "title": "DoneEventData",
+        "type": "object"
+      },
+      "DraftStep": {
+        "description": "Either a draft (title, sop, warnings) or `failed` with the reasons.",
+        "properties": {
+          "failed": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Failed"
+          },
+          "node": {
+            "const": "draft_work_order",
+            "title": "Node",
+            "type": "string"
+          },
+          "sop": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Sop"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Title"
+          },
+          "warnings": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Warnings"
+          }
+        },
+        "required": [
+          "node"
+        ],
+        "title": "DraftStep",
+        "type": "object"
+      },
+      "ErrorEventData": {
+        "properties": {
+          "error": {
+            "title": "Error",
+            "type": "string"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "title": "ErrorEventData",
+        "type": "object"
+      },
+      "ErrorOut": {
+        "description": "The body of every HTTPException with a text detail: {\"detail\": \"...\"}.",
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "ErrorOut",
+        "type": "object"
+      },
+      "FollowUpStep": {
+        "properties": {
+          "follow_ups": {
+            "title": "Follow Ups",
+            "type": "integer"
+          },
+          "node": {
+            "const": "follow_up",
+            "title": "Node",
+            "type": "string"
+          },
+          "tool": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tool"
+          }
+        },
+        "required": [
+          "node",
+          "follow_ups",
+          "tool"
+        ],
+        "title": "FollowUpStep",
+        "type": "object"
+      },
+      "GatewayStats": {
+        "properties": {
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/ModelStats"
+            },
+            "title": "Models",
+            "type": "array"
+          },
+          "since": {
+            "format": "date-time",
+            "title": "Since",
+            "type": "string"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/StatsTotals"
+          },
+          "window_hours": {
+            "title": "Window Hours",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "window_hours",
+          "since",
+          "totals",
+          "models"
+        ],
+        "title": "GatewayStats",
+        "type": "object"
+      },
+      "GuardStep": {
+        "properties": {
+          "errors": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "node": {
+            "const": "guard",
+            "title": "Node",
+            "type": "string"
+          },
+          "passed": {
+            "title": "Passed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "node",
+          "passed",
+          "errors"
+        ],
+        "title": "GuardStep",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HealthResponse": {
+        "properties": {
+          "db": {
+            "enum": [
+              "ok",
+              "error"
+            ],
+            "title": "Db",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "degraded"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "db"
+        ],
+        "title": "HealthResponse",
+        "type": "object"
+      },
+      "HypothesizeStep": {
+        "description": "Either a hypothesis (category, confidence, root_cause) or `failed`.",
+        "properties": {
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Category"
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Confidence"
+          },
+          "failed": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Failed"
+          },
+          "node": {
+            "const": "hypothesize",
+            "title": "Node",
+            "type": "string"
+          },
+          "root_cause": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Root Cause"
+          }
+        },
+        "required": [
+          "node"
+        ],
+        "title": "HypothesizeStep",
+        "type": "object"
+      },
+      "IncidentIn": {
+        "properties": {
+          "machine": {
+            "description": "Machine code, e.g. \"M-08\"",
+            "pattern": "^M-\\d\\d$",
+            "title": "Machine",
+            "type": "string"
+          },
+          "question": {
+            "description": "What the engineer wants to know, e.g. \"Is the compressor overheating?\"",
+            "maxLength": 200,
+            "minLength": 3,
+            "title": "Question",
+            "type": "string"
+          }
+        },
+        "required": [
+          "machine",
+          "question"
+        ],
+        "title": "IncidentIn",
+        "type": "object"
+      },
+      "IncidentOut": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "machine": {
+            "title": "Machine",
+            "type": "string"
+          },
+          "question": {
+            "title": "Question",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "machine",
+          "question"
+        ],
+        "title": "IncidentOut",
+        "type": "object"
+      },
+      "InvalidRequestOut": {
+        "description": "FastAPI's own 422 for a malformed request (pydantic's error list), as a model so it can\nbe combined with our own 422 bodies in one documented response.",
+        "properties": {
+          "detail": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "InvalidRequestOut",
+        "type": "object"
+      },
+      "InvestigateStep": {
+        "properties": {
+          "alarms": {
+            "title": "Alarms",
+            "type": "integer"
+          },
+          "data_ends_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data Ends At"
+          },
+          "docs": {
+            "title": "Docs",
+            "type": "integer"
+          },
+          "findings": {
+            "title": "Findings",
+            "type": "integer"
+          },
+          "incidents": {
+            "title": "Incidents",
+            "type": "integer"
+          },
+          "node": {
+            "const": "investigate",
+            "title": "Node",
+            "type": "string"
+          },
+          "tool_errors": {
+            "title": "Tool Errors",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "node",
+          "findings",
+          "alarms",
+          "docs",
+          "incidents",
+          "tool_errors",
+          "data_ends_at"
+        ],
+        "title": "InvestigateStep",
+        "type": "object"
+      },
+      "MachineDetail": {
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "install_date": {
+            "format": "date",
+            "title": "Install Date",
+            "type": "string"
+          },
+          "last_reading_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Reading At"
+          },
+          "line": {
+            "title": "Line",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "sensors": {
+            "items": {
+              "$ref": "#/components/schemas/SensorOut"
+            },
+            "title": "Sensors",
+            "type": "array"
+          },
+          "status": {
+            "$ref": "#/components/schemas/MachineStatus"
+          },
+          "type": {
+            "$ref": "#/components/schemas/MachineType"
+          }
+        },
+        "required": [
+          "code",
+          "name",
+          "line",
+          "type",
+          "status",
+          "install_date",
+          "sensors"
+        ],
+        "title": "MachineDetail",
+        "type": "object"
+      },
+      "MachineOut": {
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "install_date": {
+            "format": "date",
+            "title": "Install Date",
+            "type": "string"
+          },
+          "last_reading_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Reading At"
+          },
+          "line": {
+            "title": "Line",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/MachineStatus"
+          },
+          "type": {
+            "$ref": "#/components/schemas/MachineType"
+          }
+        },
+        "required": [
+          "code",
+          "name",
+          "line",
+          "type",
+          "status",
+          "install_date"
+        ],
+        "title": "MachineOut",
+        "type": "object"
+      },
+      "MachineStatus": {
+        "enum": [
+          "running",
+          "idle",
+          "down",
+          "maintenance"
+        ],
+        "title": "MachineStatus",
+        "type": "string"
+      },
+      "MachineType": {
+        "enum": [
+          "cnc_mill",
+          "injection_molder",
+          "compressor",
+          "conveyor",
+          "pump"
+        ],
+        "title": "MachineType",
+        "type": "string"
+      },
+      "ModelStats": {
+        "properties": {
+          "error_types": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Error Types",
+            "type": "object"
+          },
+          "errors": {
+            "title": "Errors",
+            "type": "integer"
+          },
+          "latency_p50_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency P50 Ms"
+          },
+          "latency_p95_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency P95 Ms"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "integer"
+          },
+          "requests": {
+            "title": "Requests",
+            "type": "integer"
+          },
+          "tokens_in": {
+            "title": "Tokens In",
+            "type": "integer"
+          },
+          "tokens_out": {
+            "title": "Tokens Out",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "model",
+          "requests",
+          "ok",
+          "errors",
+          "error_types",
+          "latency_p50_ms",
+          "latency_p95_ms",
+          "tokens_in",
+          "tokens_out"
+        ],
+        "title": "ModelStats",
+        "type": "object"
+      },
+      "ReadingBucket": {
+        "description": "One aggregated point. min/max keep short spikes visible that the average would hide.",
+        "properties": {
+          "avg": {
+            "title": "Avg",
+            "type": "number"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "max": {
+            "title": "Max",
+            "type": "number"
+          },
+          "min": {
+            "title": "Min",
+            "type": "number"
+          },
+          "time": {
+            "format": "date-time",
+            "title": "Time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "time",
+          "avg",
+          "min",
+          "max",
+          "count"
+        ],
+        "title": "ReadingBucket",
+        "type": "object"
+      },
+      "ReadingsOut": {
+        "properties": {
+          "bucket": {
+            "title": "Bucket",
+            "type": "string"
+          },
+          "coverage_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Coverage Note"
+          },
+          "data_ends_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data Ends At"
+          },
+          "end": {
+            "format": "date-time",
+            "title": "End",
+            "type": "string"
+          },
+          "machine": {
+            "title": "Machine",
+            "type": "string"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/ReadingBucket"
+            },
+            "title": "Points",
+            "type": "array"
+          },
+          "sensor": {
+            "title": "Sensor",
+            "type": "string"
+          },
+          "start": {
+            "format": "date-time",
+            "title": "Start",
+            "type": "string"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "machine",
+          "sensor",
+          "unit",
+          "bucket",
+          "start",
+          "end",
+          "points"
+        ],
+        "title": "ReadingsOut",
+        "type": "object"
+      },
+      "ReportEventData": {
+        "properties": {
+          "answer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer"
+          },
+          "usage": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Usage",
+            "type": "object"
+          }
+        },
+        "required": [
+          "answer",
+          "usage"
+        ],
+        "title": "ReportEventData",
+        "type": "object"
+      },
+      "RunOut": {
+        "description": "A run's current state (also after a restart: from the checkpointer). Use it to catch up\nafter a dropped stream.",
+        "properties": {
+          "answer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer"
+          },
+          "pending_approval": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pending Approval"
+          },
+          "status": {
+            "enum": [
+              "running",
+              "paused",
+              "done",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "thread_id": {
+            "title": "Thread Id",
+            "type": "string"
+          },
+          "usage": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Usage",
+            "type": "object"
+          }
+        },
+        "required": [
+          "thread_id",
+          "status",
+          "answer",
+          "pending_approval",
+          "usage"
+        ],
+        "title": "RunOut",
+        "type": "object"
+      },
+      "SensorKind": {
+        "enum": [
+          "temperature",
+          "vibration",
+          "pressure",
+          "current",
+          "rpm"
+        ],
+        "title": "SensorKind",
+        "type": "string"
+      },
+      "SensorOut": {
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/SensorKind"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "normal_max": {
+            "title": "Normal Max",
+            "type": "number"
+          },
+          "normal_min": {
+            "title": "Normal Min",
+            "type": "number"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "kind",
+          "unit",
+          "normal_min",
+          "normal_max"
+        ],
+        "title": "SensorOut",
+        "type": "object"
+      },
+      "SentBackDetail": {
+        "properties": {
+          "errors": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message",
+          "errors"
+        ],
+        "title": "SentBackDetail",
+        "type": "object"
+      },
+      "SentBackOut": {
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/SentBackDetail"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "SentBackOut",
+        "type": "object"
+      },
+      "StatsTotals": {
+        "properties": {
+          "cache_hits": {
+            "title": "Cache Hits",
+            "type": "integer"
+          },
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "failed_calls": {
+            "title": "Failed Calls",
+            "type": "integer"
+          },
+          "requests": {
+            "title": "Requests",
+            "type": "integer"
+          },
+          "requests_today_utc": {
+            "title": "Requests Today Utc",
+            "type": "integer"
+          },
+          "tokens_in": {
+            "title": "Tokens In",
+            "type": "integer"
+          },
+          "tokens_out": {
+            "title": "Tokens Out",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "calls",
+          "failed_calls",
+          "requests",
+          "cache_hits",
+          "tokens_in",
+          "tokens_out",
+          "requests_today_utc"
+        ],
+        "title": "StatsTotals",
+        "type": "object"
+      },
+      "StepEventData": {
+        "discriminator": {
+          "mapping": {
+            "draft_work_order": "#/components/schemas/DraftStep",
+            "follow_up": "#/components/schemas/FollowUpStep",
+            "guard": "#/components/schemas/GuardStep",
+            "hypothesize": "#/components/schemas/HypothesizeStep",
+            "investigate": "#/components/schemas/InvestigateStep",
+            "triage": "#/components/schemas/TriageStep"
+          },
+          "propertyName": "node"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/TriageStep"
+          },
+          {
+            "$ref": "#/components/schemas/InvestigateStep"
+          },
+          {
+            "$ref": "#/components/schemas/FollowUpStep"
+          },
+          {
+            "$ref": "#/components/schemas/HypothesizeStep"
+          },
+          {
+            "$ref": "#/components/schemas/GuardStep"
+          },
+          {
+            "$ref": "#/components/schemas/DraftStep"
+          }
+        ]
+      },
+      "TriageStep": {
+        "properties": {
+          "intent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Intent"
+          },
+          "machine": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Machine"
+          },
+          "node": {
+            "const": "triage",
+            "title": "Node",
+            "type": "string"
+          }
+        },
+        "required": [
+          "node",
+          "machine",
+          "intent"
+        ],
+        "title": "TriageStep",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      },
+      "WorkAction": {
+        "properties": {
+          "safety": {
+            "description": "True for lockout, hold points (⚠ STOP) and safety checks",
+            "title": "Safety",
+            "type": "boolean"
+          },
+          "sop_step": {
+            "description": "Where in the SOP this comes from, e.g. '§4 step 6'",
+            "title": "Sop Step",
+            "type": "string"
+          },
+          "text": {
+            "description": "What to do, in the SOP's words where possible",
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "sop_step",
+          "safety"
+        ],
+        "title": "WorkAction",
+        "type": "object"
+      },
+      "WorkOrderDetail": {
+        "properties": {
+          "approved_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved At"
+          },
+          "approved_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved By"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "completed_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed By"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "draft": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Draft"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "incident_id": {
+            "title": "Incident Id",
+            "type": "integer"
+          },
+          "priority": {
+            "$ref": "#/components/schemas/WorkOrderPriority"
+          },
+          "rejected_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rejected By"
+          },
+          "review_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Note"
+          },
+          "sop_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sop Ref"
+          },
+          "status": {
+            "$ref": "#/components/schemas/WorkOrderStatus"
+          },
+          "thread_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thread Id"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "id",
+          "incident_id",
+          "thread_id",
+          "status",
+          "priority",
+          "title",
+          "sop_ref",
+          "created_at",
+          "approved_by",
+          "approved_at",
+          "rejected_by",
+          "review_note",
+          "completed_by",
+          "completed_at",
+          "draft"
+        ],
+        "title": "WorkOrderDetail",
+        "type": "object"
+      },
+      "WorkOrderDraft": {
+        "description": "A DRAFT for a human to approve (5.3); never saved by the agent on its own.",
+        "properties": {
+          "actions": {
+            "items": {
+              "$ref": "#/components/schemas/WorkAction"
+            },
+            "title": "Actions",
+            "type": "array"
+          },
+          "duration": {
+            "description": "From the SOP's scope, e.g. '30 min'",
+            "title": "Duration",
+            "type": "string"
+          },
+          "parts": {
+            "items": {
+              "$ref": "#/components/schemas/WorkPart"
+            },
+            "title": "Parts",
+            "type": "array"
+          },
+          "priority": {
+            "$ref": "#/components/schemas/WorkOrderPriority"
+          },
+          "sop_ref": {
+            "description": "The SOP this order follows, e.g. 'SOP-CMP-005'",
+            "title": "Sop Ref",
+            "type": "string"
+          },
+          "staff": {
+            "description": "From the SOP's scope, e.g. '1 technician'",
+            "title": "Staff",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "verification": {
+            "description": "The SOP's acceptance criteria, in one or two lines",
+            "title": "Verification",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "priority",
+          "sop_ref",
+          "actions",
+          "duration",
+          "staff",
+          "verification"
+        ],
+        "title": "WorkOrderDraft",
+        "type": "object"
+      },
+      "WorkOrderPriority": {
+        "enum": [
+          "low",
+          "medium",
+          "high",
+          "urgent"
+        ],
+        "title": "WorkOrderPriority",
+        "type": "string"
+      },
+      "WorkOrderStatus": {
+        "enum": [
+          "draft",
+          "approved",
+          "rejected",
+          "done"
+        ],
+        "title": "WorkOrderStatus",
+        "type": "string"
+      },
+      "WorkOrderSummary": {
+        "properties": {
+          "approved_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved At"
+          },
+          "approved_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved By"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "completed_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed By"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "incident_id": {
+            "title": "Incident Id",
+            "type": "integer"
+          },
+          "priority": {
+            "$ref": "#/components/schemas/WorkOrderPriority"
+          },
+          "rejected_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rejected By"
+          },
+          "review_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Note"
+          },
+          "sop_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sop Ref"
+          },
+          "status": {
+            "$ref": "#/components/schemas/WorkOrderStatus"
+          },
+          "thread_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thread Id"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "id",
+          "incident_id",
+          "thread_id",
+          "status",
+          "priority",
+          "title",
+          "sop_ref",
+          "created_at",
+          "approved_by",
+          "approved_at",
+          "rejected_by",
+          "review_note",
+          "completed_by",
+          "completed_at"
+        ],
+        "title": "WorkOrderSummary",
+        "type": "object"
+      },
+      "WorkPart": {
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "part_no": {
+            "description": "Exactly as in the SOP's parts table, e.g. 'AF-SC55-E'",
+            "title": "Part No",
+            "type": "string"
+          },
+          "quantity": {
+            "default": 1,
+            "title": "Quantity",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "part_no",
+          "description"
+        ],
+        "title": "WorkPart",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "AI maintenance copilot for factories.",
+    "title": "FabPilot API",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/": {
+      "get": {
+        "description": "Identify the service. Handy as a smoke test and for humans hitting the base URL.",
+        "operationId": "root",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Root",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Root"
+      }
+    },
+    "/gateway/stats": {
+      "get": {
+        "description": "Requests, failures, cache hits and per-model latency over the last `hours`.",
+        "operationId": "gatewayStats",
+        "parameters": [
+          {
+            "description": "Look-back window (max 30 days)",
+            "in": "query",
+            "name": "hours",
+            "required": false,
+            "schema": {
+              "default": 24,
+              "description": "Look-back window (max 30 days)",
+              "maximum": 720,
+              "minimum": 1,
+              "title": "Hours",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayStats"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Gateway Stats",
+        "tags": [
+          "gateway"
+        ]
+      }
+    },
+    "/health": {
+      "get": {
+        "description": "Check that the API can reach Postgres. 200 when healthy, 503 when the DB is unreachable.",
+        "operationId": "health",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health",
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/incidents": {
+      "post": {
+        "description": "Open an incident for one machine: the thing an investigation is ABOUT.",
+        "operationId": "createIncident",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IncidentIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IncidentOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "No such machine"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Incident",
+        "tags": [
+          "incidents"
+        ]
+      }
+    },
+    "/incidents/{incident_id}/investigate": {
+      "post": {
+        "description": "Investigate an incident; streams the agent's steps live (Server-Sent Events). Closing the\nstream does NOT stop the run: catch up with GET /runs/{thread_id} (in the `done` event).",
+        "operationId": "investigate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "incident_id",
+            "required": true,
+            "schema": {
+              "title": "Incident Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {
+                "itemSchema": {
+                  "properties": {
+                    "data": {
+                      "type": "string"
+                    },
+                    "event": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "retry": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "No such incident"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "All run slots busy: retry after the Retry-After header's seconds"
+          }
+        },
+        "summary": "Investigate",
+        "tags": [
+          "incidents"
+        ],
+        "x-sse-events": {
+          "approval_required": {
+            "$ref": "#/components/schemas/ApprovalRequiredEventData"
+          },
+          "done": {
+            "$ref": "#/components/schemas/DoneEventData"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ErrorEventData"
+          },
+          "report": {
+            "$ref": "#/components/schemas/ReportEventData"
+          },
+          "step": {
+            "$ref": "#/components/schemas/StepEventData"
+          }
+        }
+      }
+    },
+    "/machines": {
+      "get": {
+        "description": "All machines (optionally of one line), ordered by code.",
+        "operationId": "listMachines",
+        "parameters": [
+          {
+            "description": "Filter by line, e.g. \"Line 3\"",
+            "in": "query",
+            "name": "line",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by line, e.g. \"Line 3\"",
+              "title": "Line"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/MachineOut"
+                  },
+                  "title": "Response Listmachines",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Machines",
+        "tags": [
+          "machines"
+        ]
+      }
+    },
+    "/machines/{code}": {
+      "get": {
+        "description": "One machine with its sensors and their normal operating ranges.",
+        "operationId": "getMachine",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "code",
+            "required": true,
+            "schema": {
+              "title": "Code",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "No such machine"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Machine",
+        "tags": [
+          "machines"
+        ]
+      }
+    },
+    "/machines/{code}/readings": {
+      "get": {
+        "description": "Readings of one sensor aggregated per time bucket (avg / min / max / count).",
+        "operationId": "getReadings",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "code",
+            "required": true,
+            "schema": {
+              "title": "Code",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Sensor name, e.g. spindle_vibration",
+            "in": "query",
+            "name": "sensor",
+            "required": true,
+            "schema": {
+              "description": "Sensor name, e.g. spindle_vibration",
+              "title": "Sensor",
+              "type": "string"
+            }
+          },
+          {
+            "description": "ISO 8601 with timezone",
+            "in": "query",
+            "name": "start",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "ISO 8601 with timezone",
+              "title": "Start"
+            }
+          },
+          {
+            "description": "ISO 8601 with timezone; default now",
+            "in": "query",
+            "name": "end",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "ISO 8601 with timezone; default now",
+              "title": "End"
+            }
+          },
+          {
+            "description": "Default: smallest that fits",
+            "in": "query",
+            "name": "bucket",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/Bucket"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Default: smallest that fits",
+              "title": "Bucket"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadingsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "No such machine or sensor"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestOut"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ErrorOut"
+                    }
+                  ],
+                  "title": "Response 422 Getreadings"
+                }
+              }
+            },
+            "description": "Malformed request, or an invalid time range"
+          }
+        },
+        "summary": "Get Readings",
+        "tags": [
+          "machines"
+        ]
+      }
+    },
+    "/runs/{thread_id}": {
+      "get": {
+        "description": "A run's state: live from this process, or from the checkpointer (any process, a restart).",
+        "operationId": "getRun",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "thread_id",
+            "required": true,
+            "schema": {
+              "title": "Thread Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "No such run"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Run",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/runs/{thread_id}/decision": {
+      "post": {
+        "description": "Approve, edit or reject the draft a paused run is waiting on. Nothing is saved before\nthis, and an edited draft goes through the same safety checks as the model's draft.",
+        "operationId": "decide",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "thread_id",
+            "required": true,
+            "schema": {
+              "title": "Thread Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Approval"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DecisionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "No such run"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "The run is not waiting for a decision (already decided, or still running)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/SentBackOut"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestOut"
+                    }
+                  ],
+                  "title": "Response 422 Decide"
+                }
+              }
+            },
+            "description": "Sent back by the checks (the run stays paused), or a malformed body"
+          }
+        },
+        "summary": "Decide",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/work-orders": {
+      "get": {
+        "description": "Newest first.",
+        "operationId": "listWorkOrders",
+        "parameters": [
+          {
+            "description": "e.g. approved",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/WorkOrderStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "e.g. approved",
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "incident_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Incident Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/WorkOrderSummary"
+                  },
+                  "title": "Response Listworkorders",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Work Orders",
+        "tags": [
+          "work orders"
+        ]
+      }
+    },
+    "/work-orders/{work_order_id}": {
+      "get": {
+        "description": "One work order with the complete document that was decided on.",
+        "operationId": "getWorkOrder",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "work_order_id",
+            "required": true,
+            "schema": {
+              "title": "Work Order Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkOrderDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "No such work order"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Work Order",
+        "tags": [
+          "work orders"
+        ]
+      }
+    },
+    "/work-orders/{work_order_id}/complete": {
+      "post": {
+        "description": "Mark an APPROVED order as done, with who did it; the time is the server's.",
+        "operationId": "complete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "work_order_id",
+            "required": true,
+            "schema": {
+              "title": "Work Order Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompleteIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkOrderDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "No such work order"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "This status change is not allowed (only approved -> done)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Complete",
+        "tags": [
+          "work orders"
+        ]
+      }
+    }
+  }
+}

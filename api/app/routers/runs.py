@@ -23,7 +23,7 @@ from app.agent.service import AgentService, NotWaiting, SentBack, usage
 from app.agent.state import Approval
 from app.db.deps import get_agent
 from app.errors import NotFoundError
-from app.schemas import DecisionOut, RunOut
+from app.schemas import DecisionOut, InvalidRequestOut, RunOut, SentBackOut, error
 
 router = APIRouter(prefix="/runs", tags=["runs"])
 
@@ -34,9 +34,12 @@ Agent = Annotated[AgentService, Depends(get_agent)]
     "/{thread_id}/decision",
     response_model=DecisionOut,
     responses={
-        404: {"description": "No such run"},
-        409: {"description": "The run is not waiting for a decision"},
-        422: {"description": "Sent back by the checks; the run stays paused"},
+        404: error("No such run"),
+        409: error("The run is not waiting for a decision (already decided, or still running)"),
+        422: error(
+            "Sent back by the checks (the run stays paused), or a malformed body",
+            SentBackOut | InvalidRequestOut,
+        ),
     },
 )
 async def decide(thread_id: str, approval: Approval, agent: Agent) -> DecisionOut:
@@ -59,7 +62,7 @@ async def decide(thread_id: str, approval: Approval, agent: Agent) -> DecisionOu
     return DecisionOut(thread_id=thread_id, status=status, work_order_id=state.work_order_id)
 
 
-@router.get("/{thread_id}", response_model=RunOut)
+@router.get("/{thread_id}", response_model=RunOut, responses={404: error("No such run")})
 async def get_run(thread_id: str, agent: Agent) -> RunOut:
     """A run's state: live from this process, or from the checkpointer (any process, a restart)."""
     found = await agent.state(thread_id)

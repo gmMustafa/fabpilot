@@ -44,7 +44,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done (verified, quiz answered, 
 ## Phase 6 — API for the frontend
 - [x] 6.1 `POST /incidents/{id}/investigate` + SSE stream
 - [x] 6.2 Approval endpoints; work order CRUD
-- [ ] 6.3 OpenAPI → TypeScript types
+- [x] 6.3 OpenAPI → TypeScript types
 
 ## Phase 7 — Next.js dashboard
 - [ ] 7.1 Setup: Next.js, Tailwind, shadcn/ui, API client

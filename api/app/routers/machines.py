@@ -13,7 +13,14 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from app import plant_data
 from app.db.deps import get_engine
 from app.plant_data import Bucket, InvalidQueryError, NotFoundError
-from app.schemas import MachineDetail, MachineOut, ReadingsOut
+from app.schemas import (
+    ErrorOut,
+    InvalidRequestOut,
+    MachineDetail,
+    MachineOut,
+    ReadingsOut,
+    error,
+)
 
 router = APIRouter(prefix="/machines", tags=["machines"])
 
@@ -34,7 +41,7 @@ async def list_machines(
         return await plant_data.list_machines(conn, line)
 
 
-@router.get("/{code}", response_model=MachineDetail)
+@router.get("/{code}", response_model=MachineDetail, responses={404: error("No such machine")})
 async def get_machine(code: str, engine: Engine) -> MachineDetail:
     """One machine with its sensors and their normal operating ranges."""
     try:
@@ -44,7 +51,14 @@ async def get_machine(code: str, engine: Engine) -> MachineDetail:
         raise _http(e) from e
 
 
-@router.get("/{code}/readings", response_model=ReadingsOut)
+@router.get(
+    "/{code}/readings",
+    response_model=ReadingsOut,
+    responses={
+        404: error("No such machine or sensor"),
+        422: error("Malformed request, or an invalid time range", InvalidRequestOut | ErrorOut),
+    },
+)
 async def get_readings(
     code: str,
     engine: Engine,

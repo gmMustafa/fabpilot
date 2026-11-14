@@ -20,7 +20,7 @@ from fastapi.sse import EventSourceResponse, ServerSentEvent
 from app.agent.service import AgentService, Busy, RunHandle
 from app.db.deps import get_agent
 from app.errors import NotFoundError
-from app.schemas import IncidentIn, IncidentOut
+from app.schemas import IncidentIn, IncidentOut, error
 
 router = APIRouter(tags=["incidents"])
 
@@ -32,7 +32,12 @@ RETRY_AFTER_SECONDS = 30  # a typical run takes 10-60 s: by then a slot is likel
 # clients and HTTP libraries treat it as "wait Retry-After, then retry".
 
 
-@router.post("/incidents", response_model=IncidentOut, status_code=201)
+@router.post(
+    "/incidents",
+    response_model=IncidentOut,
+    status_code=201,
+    responses={404: error("No such machine")},
+)
 async def create_incident(body: IncidentIn, agent: Agent, response: Response) -> IncidentOut:
     """Open an incident for one machine: the thing an investigation is ABOUT."""
     try:
@@ -69,7 +74,10 @@ async def start_investigation(incident_id: int, agent: Agent) -> RunHandle:
 @router.post(
     "/incidents/{incident_id}/investigate",
     response_class=EventSourceResponse,
-    responses={404: {"description": "No such incident"}, 429: {"description": "All slots busy"}},
+    responses={
+        404: error("No such incident"),
+        429: error("All run slots busy: retry after the Retry-After header's seconds"),
+    },
 )
 async def investigate(
     handle: Annotated[RunHandle, Depends(start_investigation)],

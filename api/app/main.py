@@ -17,6 +17,7 @@ from app.agent.tools import McpTools
 from app.config import get_settings
 from app.db.session import create_engine
 from app.gateway.factory import build_gateway
+from app.openapi import install, operation_id
 from app.routers import gateway, health, incidents, machines, runs, work_orders
 
 
@@ -52,6 +53,7 @@ app = FastAPI(
     version="0.1.0",
     description="AI maintenance copilot for factories.",
     lifespan=lifespan,
+    generate_unique_id_function=operation_id,  # readable names for generated clients (6.3)
 )
 app.include_router(health.router)
 app.include_router(machines.router)
@@ -59,6 +61,7 @@ app.include_router(gateway.router)
 app.include_router(incidents.router)
 app.include_router(runs.router)
 app.include_router(work_orders.router)
+install(app)  # the SSE event payloads as schema components (6.3)
 
 
 @app.get("/")

@@ -148,3 +148,122 @@ class DecisionOut(BaseModel):
 
 class CompleteIn(BaseModel):
     by: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
+
+
+# ------------------------------------------------------------------ error bodies (6.3)
+
+
+class ErrorOut(BaseModel):
+    """The body of every HTTPException with a text detail: {"detail": "..."}."""
+
+    detail: str
+
+
+class InvalidRequestOut(BaseModel):
+    """FastAPI's own 422 for a malformed request (pydantic's error list), as a model so it can
+    be combined with our own 422 bodies in one documented response."""
+
+    detail: list[dict[str, Any]]
+
+
+class SentBackDetail(BaseModel):
+    message: str
+    errors: list[str]  # check_approval's reasons: show them to the reviewer next to the form
+
+
+class SentBackOut(BaseModel):
+    detail: SentBackDetail
+
+
+def error(description: str, model: Any = ErrorOut) -> dict[str, Any]:
+    """One entry of a route's `responses=`: documented with a SCHEMA, not only a sentence."""
+    return {"model": model, "description": description}
+
+
+# ------------------------------------------------------------------ stream event payloads (6.3)
+# OpenAPI can't describe what an SSE stream carries; these models are published as schema
+# components (app/openapi.py) so the frontend gets types for each event's `data`, and
+# tests/test_openapi.py checks that every event the service emits fits its model.
+
+
+class TriageStep(BaseModel):
+    node: Literal["triage"]
+    machine: str | None
+    intent: str | None
+
+
+class InvestigateStep(BaseModel):
+    node: Literal["investigate"]
+    findings: int
+    alarms: int
+    docs: int
+    incidents: int
+    tool_errors: int
+    data_ends_at: str | None
+
+
+class FollowUpStep(BaseModel):
+    node: Literal["follow_up"]
+    follow_ups: int
+    tool: str | None
+
+
+class HypothesizeStep(BaseModel):
+    """Either a hypothesis (category, confidence, root_cause) or `failed`."""
+
+    node: Literal["hypothesize"]
+    category: str | None = None
+    confidence: str | None = None
+    root_cause: str | None = None
+    failed: str | None = None
+
+
+class GuardStep(BaseModel):
+    node: Literal["guard"]
+    passed: bool
+    errors: list[str]
+
+
+class DraftStep(BaseModel):
+    """Either a draft (title, sop, warnings) or `failed` with the reasons."""
+
+    node: Literal["draft_work_order"]
+    title: str | None = None
+    sop: str | None = None
+    warnings: list[str] | None = None
+    failed: list[str] | None = None
+
+
+StepEventData = Annotated[
+    TriageStep | InvestigateStep | FollowUpStep | HypothesizeStep | GuardStep | DraftStep,
+    Field(discriminator="node"),
+]
+
+
+class ReportEventData(BaseModel):
+    answer: str | None
+    usage: dict[str, int]
+
+
+class ApprovalRequiredEventData(BaseModel):
+    work_order: dict[str, Any]  # a WorkOrderDraft as JSON (see the WorkOrderDraft schema)
+    errors: list[str]  # why the previous decision was sent back (empty the first time)
+
+
+class ErrorEventData(BaseModel):
+    error: str
+
+
+class DoneEventData(BaseModel):
+    thread_id: str
+    status: Literal["running", "paused", "done", "failed"]
+
+
+# event name -> the model of its `data`
+EVENT_DATA: dict[str, Any] = {
+    "step": StepEventData,
+    "report": ReportEventData,
+    "approval_required": ApprovalRequiredEventData,
+    "error": ErrorEventData,
+    "done": DoneEventData,
+}

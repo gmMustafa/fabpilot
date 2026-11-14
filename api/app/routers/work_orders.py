@@ -11,7 +11,7 @@ from app import work_orders
 from app.db.deps import get_engine
 from app.db.models import WorkOrderStatus
 from app.errors import NotFoundError
-from app.schemas import CompleteIn
+from app.schemas import CompleteIn, error
 from app.work_orders import InvalidTransition, WorkOrderDetail, WorkOrderSummary
 
 router = APIRouter(prefix="/work-orders", tags=["work orders"])
@@ -31,7 +31,11 @@ async def list_work_orders(
         return await work_orders.list_work_orders(conn, status, incident_id, limit)
 
 
-@router.get("/{work_order_id}", response_model=WorkOrderDetail)
+@router.get(
+    "/{work_order_id}",
+    response_model=WorkOrderDetail,
+    responses={404: error("No such work order")},
+)
 async def get_work_order(work_order_id: int, engine: Engine) -> WorkOrderDetail:
     """One work order with the complete document that was decided on."""
     try:
@@ -44,7 +48,10 @@ async def get_work_order(work_order_id: int, engine: Engine) -> WorkOrderDetail:
 @router.post(
     "/{work_order_id}/complete",
     response_model=WorkOrderDetail,
-    responses={404: {"description": "No such work order"}, 409: {"description": "Not allowed"}},
+    responses={
+        404: error("No such work order"),
+        409: error("This status change is not allowed (only approved -> done)"),
+    },
 )
 async def complete(work_order_id: int, body: CompleteIn, engine: Engine) -> WorkOrderDetail:
     """Mark an APPROVED order as done, with who did it; the time is the server's."""
