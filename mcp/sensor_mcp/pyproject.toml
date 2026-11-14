@@ -13,8 +13,13 @@ dependencies = [
 [project.scripts]
 sensor-mcp = "sensor_mcp.server:main"
 
+# Tests only: the anomaly detectors are tested against simulated healthy/faulty signals.
+[dependency-groups]
+dev = ["fabpilot-simulator"]
+
 [tool.uv.sources]
 fabpilot-api = { workspace = true }
+fabpilot-simulator = { workspace = true }
 
 [build-system]
 requires = ["uv_build>=0.11.6,<0.12.0"]

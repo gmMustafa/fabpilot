@@ -510,11 +510,19 @@ dependencies = [
     { name = "mcp" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "fabpilot-simulator" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "fabpilot-api", editable = "api" },
     { name = "mcp", specifier = ">=2.3.0" },
 ]
+
+[package.metadata.requires-dev]
+dev = [{ name = "fabpilot-simulator", editable = "simulator" }]
 
 [[package]]
 name = "fabpilot-simulator"

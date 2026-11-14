@@ -20,11 +20,12 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Annotated
 
+import numpy as np
 from mcp.server import MCPServer
 from mcp.server.mcpserver import Context
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
-from pydantic import Field
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app import plant_data
@@ -32,6 +33,7 @@ from app.config import get_settings
 from app.db.session import create_engine
 from app.plant_data import Bucket, InvalidQueryError, NotFoundError
 from app.schemas import AlarmOut, MachineDetail, MachineOut, ReadingsOut
+from sensor_mcp.anomaly import Finding, Series, analyze
 
 logger = logging.getLogger("sensor_mcp")
 
@@ -137,7 +139,84 @@ def create_server(make_engine: Callable[[], AsyncEngine] | None = None) -> MCPSe
             async with ctx.request_context.lifespan_context.engine.connect() as conn:
                 return await plant_data.get_alarm_log(conn, machine, query)
 
+    @server.tool(annotations=READ_ONLY)
+    async def detect_anomalies(
+        ctx: Context[AppState],
+        machine: MachineCode,
+        start: Annotated[
+            datetime | None,
+            Field(description="Window start, ISO 8601 with timezone. Default: end minus 3 days"),
+        ] = None,
+        end: End = None,
+    ) -> AnomalyReport:
+        """Statistical findings for ALL sensors of one machine (max 7 days), instead of raw numbers.
+
+        Kinds: out_of_band (outside the normal range while running), spike (a jump that came
+        back), trend (slow shift of the level: wear, clogging, drift), moves_when_stopped (value
+        changes while the machine is off and settled: typical of a faulty sensor),
+        current_up_speed_down (the overload signature). `isolated` = no other sensor of the
+        machine changed. quiet_sensors lists sensors without findings: compare them, a real
+        machine fault rarely shows on one signal only. Findings are facts, not diagnoses."""
+        with _as_tool_errors():
+            async with ctx.request_context.lifespan_context.engine.connect() as conn:
+                detail, start_, end_, raw = await plant_data.minute_means(conn, machine, start, end)
+            return _analyze(detail, start_, end_, raw)
+
     return server
+
+
+class AnomalyReport(BaseModel):
+    machine: str
+    start: datetime
+    end: datetime
+    minutes_analyzed: int
+    findings: list[Finding]
+    quiet_sensors: list[str]  # no finding: as informative as a finding for a false alarm
+
+
+def _analyze(
+    detail: MachineDetail,
+    start: datetime,
+    end: datetime,
+    raw: dict[str, list[tuple[datetime, float]]],
+) -> AnomalyReport:
+    """DB rows -> aligned Series -> findings. Sensors can have gaps (machine off, data loss), so
+    only the minutes where EVERY sensor has a value are analysed: the detectors compare sensors
+    minute by minute and need one shared time grid."""
+    if not raw:
+        raise InvalidQueryError(f"no readings for {detail.code} between {start} and {end}")
+    shared = set.intersection(*(set(t for t, _ in rows) for rows in raw.values()))
+    if len(shared) < 120:
+        raise InvalidQueryError(
+            f"only {len(shared)} minutes with data on all sensors of {detail.code}; "
+            "choose a window of at least a few hours in which the machine reported data"
+        )
+    grid = sorted(shared)
+    times = np.array([t.replace(tzinfo=None) for t in grid], dtype="datetime64[s]")
+    series = []
+    for spec in detail.sensors:
+        by_time = dict(raw.get(spec.name, []))
+        series.append(
+            Series(
+                spec.name,
+                spec.kind,
+                spec.unit,
+                spec.normal_min,
+                spec.normal_max,
+                times,
+                np.array([by_time[t] for t in grid], dtype=float),
+            )
+        )
+    findings = analyze(series)
+    flagged = {f.sensor for f in findings}
+    return AnomalyReport(
+        machine=detail.code,
+        start=start,
+        end=end,
+        minutes_analyzed=len(grid),
+        findings=findings,
+        quiet_sensors=[s.name for s in detail.sensors if s.name not in flagged],
+    )
 
 
 @contextmanager

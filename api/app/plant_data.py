@@ -281,3 +281,39 @@ async def get_alarm_log(
         stmt = stmt.where(Alarm.severity.in_(allowed))
     rows = (await conn.execute(stmt)).mappings().all()
     return [AlarmOut.model_validate(r) for r in rows]
+
+
+MAX_ANOMALY_RANGE = timedelta(days=7)
+ANOMALY_DEFAULT_RANGE = timedelta(days=3)
+
+
+async def minute_means(
+    conn: AsyncConnection, code: str, start: datetime | None, end: datetime | None
+) -> tuple[MachineDetail, datetime, datetime, dict[str, list[tuple[datetime, float]]]]:
+    """1-minute averages of EVERY sensor of one machine in [start, end), for anomaly detection.
+
+    One query for all sensors (not one per sensor): ~50 000 rows for a week, aggregated in
+    Postgres, so only minute means cross the network.
+    """
+    start, end = resolve_range(start, end, default=ANOMALY_DEFAULT_RANGE)
+    if end - start > MAX_ANOMALY_RANGE:
+        raise InvalidQueryError(
+            f"anomaly window too long: at most {MAX_ANOMALY_RANGE.days} days, "
+            f"got {(end - start).days} days; analyse the days around the incident"
+        )
+    machine = await get_machine(conn, code)
+    rows = await conn.execute(
+        text("""
+            SELECT s.name, time_bucket('1 minute', r.time) AS minute, AVG(r.value) AS avg
+            FROM sensor_readings r JOIN sensors s ON s.id = r.sensor_id
+            JOIN machines m ON m.id = s.machine_id
+            WHERE m.code = :code AND r.time >= :start AND r.time < :end
+            GROUP BY s.name, minute
+            ORDER BY s.name, minute
+        """),
+        {"code": code, "start": start, "end": end},
+    )
+    series: dict[str, list[tuple[datetime, float]]] = {}
+    for name, minute, avg in rows:
+        series.setdefault(name, []).append((minute, float(avg)))
+    return machine, start, end, series

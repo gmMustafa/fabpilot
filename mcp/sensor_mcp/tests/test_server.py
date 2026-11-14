@@ -28,7 +28,7 @@ from sensor_mcp.server import create_server
 pytestmark = pytest.mark.integration
 
 T0 = datetime(2026, 11, 16, 8, tzinfo=UTC)  # readings 08:00-10:00 UTC, every 10 s
-TOOLS = {"list_machines", "get_machine", "get_readings", "get_alarm_log"}
+TOOLS = {"list_machines", "get_machine", "get_readings", "get_alarm_log", "detect_anomalies"}
 
 
 @pytest.fixture
@@ -182,6 +182,61 @@ async def test_alarm_log_filters(client: OneShotClient) -> None:
     assert {a["machine"] for a in m01} == {"M-01"} and len(m01) == 3
     assert {a["code"] for a in crit} == {"VIB-CRIT", "TRIP"}
     assert [a["code"] for a in two] == ["PRESS-HIGH", "TEMP-HIGH"]
+
+
+async def _write_drifting_compressor(db_url: str) -> None:
+    """Two days of 1-minute readings for M-08 (runs 24/7): every sensor mid-band with a little
+    noise, except discharge_temp, drifting up by 80 % of its band (like the dev DB's fault #2)."""
+    eng = create_async_engine(db_url)
+    async with eng.begin() as conn:
+        await conn.execute(text("SELECT setseed(0.42)"))
+        await conn.execute(
+            text(
+                "INSERT INTO sensor_readings (sensor_id, time, value)"
+                " SELECT s.id, t,"
+                "   (s.normal_min + s.normal_max) / 2"
+                "   + (random() - 0.5) * 0.02 * (s.normal_max - s.normal_min)"
+                "   + CASE WHEN s.name = 'discharge_temp'"
+                "       THEN 0.8 * (s.normal_max - s.normal_min)"
+                "            * extract(epoch FROM t - :t0) / extract(epoch FROM interval '2 days')"
+                "       ELSE 0 END"
+                " FROM sensors s JOIN machines m ON m.id = s.machine_id,"
+                "  generate_series(:t0, :t0 + interval '2 days' - interval '1 minute',"
+                "                  interval '1 minute') AS t"
+                " WHERE m.code = 'M-08'"
+            ),
+            {"t0": T0},
+        )
+    await eng.dispose()
+
+
+async def test_detect_anomalies_reports_an_isolated_drift(
+    client: OneShotClient, db_url: str
+) -> None:
+    await _write_drifting_compressor(db_url)
+    r = await _call(
+        client,
+        "detect_anomalies",
+        {"machine": "M-08", "start": "2026-11-16T08:00:00Z", "end": "2026-11-18T08:00:00Z"},
+    )
+    assert r["minutes_analyzed"] == 2 * 24 * 60
+    # +80 % from mid-band also ends above normal_max, so out_of_band is reported too: correct.
+    assert {f["sensor"] for f in r["findings"]} == {"discharge_temp"}
+    assert all(f["isolated"] for f in r["findings"])
+    assert "trend" in {f["kind"] for f in r["findings"]}
+    assert set(r["quiet_sensors"]) == {
+        "discharge_pressure",
+        "motor_current",
+        "motor_vibration",
+        "inlet_filter_dp",
+    }
+
+
+async def test_detect_anomalies_explains_bad_windows(client: OneShotClient) -> None:
+    too_long = {"machine": "M-08", "start": "2026-11-01T00:00:00Z", "end": "2026-11-16T00:00:00Z"}
+    assert "7 days" in await _error(client, "detect_anomalies", too_long)
+    empty = {"machine": "M-08", "start": "2026-10-01T00:00:00Z", "end": "2026-10-02T00:00:00Z"}
+    assert "no readings" in await _error(client, "detect_anomalies", empty)
 
 
 # ------------------------------------------------------------------ errors the model can fix
