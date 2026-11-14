@@ -27,17 +27,53 @@ from typing import Any
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
 
 from app.agent import approval, nodes, reasoning, work_order
 from app.agent.approval import WorkOrderStore
-from app.agent.state import AgentState, Approval
+from app.agent.state import (
+    AgentState,
+    Approval,
+    Category,
+    Evidence,
+    EvidenceRef,
+    Hypothesis,
+    Intent,
+    RuledOut,
+    WorkAction,
+    WorkOrderDraft,
+    WorkPart,
+)
 from app.agent.tools import Tools
+from app.db.models import WorkOrderPriority
 from app.gateway.structured import ChatModel
 
 Graph = CompiledStateGraph[AgentState, None, AgentState, AgentState]
+
+# Every type the checkpointer may restore. Restoring ARBITRARY types from a store is a code-
+# execution risk (whoever can write the checkpoint table picks what gets instantiated), so
+# LangGraph moves to an allowlist: unlisted types are BLOCKED here. A new model in AgentState
+# must be added; tests/test_approval.py round-trips a fully populated state to catch that.
+CHECKPOINT_TYPES: tuple[type, ...] = (
+    Approval,
+    Category,
+    Evidence,
+    EvidenceRef,
+    Hypothesis,
+    Intent,
+    RuledOut,
+    WorkAction,
+    WorkOrderDraft,
+    WorkOrderPriority,
+    WorkPart,
+)
+
+
+def checkpoint_serde() -> JsonPlusSerializer:
+    return JsonPlusSerializer(allowed_msgpack_modules=CHECKPOINT_TYPES)
 
 
 def build_graph(
@@ -131,7 +167,7 @@ def build_graph(
     }
     g.add_conditional_edges("await_approval", approval.route_after_approval, after_decision)
     g.add_edge("save_work_order", END)
-    return g.compile(checkpointer=checkpointer or InMemorySaver())
+    return g.compile(checkpointer=checkpointer or InMemorySaver(serde=checkpoint_serde()))
 
 
 def thread(thread_id: str) -> RunnableConfig:

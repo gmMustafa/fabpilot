@@ -7,7 +7,14 @@ NO extra LLM request: resuming re-runs await_approval, never the model.
 import pytest
 
 from app.agent.approval import Decision, check_approval
-from app.agent.graph import Graph, build_graph, pending_approval, resume, run_question
+from app.agent.graph import (
+    Graph,
+    build_graph,
+    checkpoint_serde,
+    pending_approval,
+    resume,
+    run_question,
+)
 from app.agent.state import AgentState, Approval, Category, WorkOrderDraft
 from app.agent.work_order import VERIFICATION_SOP
 from app.db.models import WorkOrderPriority
@@ -151,6 +158,19 @@ async def test_resuming_a_finished_run_is_refused() -> None:
     with pytest.raises(RuntimeError, match="not waiting"):
         await resume(graph, Approval(action="approve", by=ME), "t1")
     assert len(store.saved) == 1
+
+
+def test_every_state_field_survives_the_checkpoint_serializer() -> None:
+    """The allowlist BLOCKS unlisted types (a warning is logged only once per process, so a log
+    check could miss one). Round-trip every field of a fully populated paused state instead."""
+    state = paused_state().model_copy(
+        update={"approval": Approval(action="edit", by=ME, edited=draft(), reason="r")}
+    )
+    serde = checkpoint_serde()
+    for field in AgentState.model_fields:
+        value = getattr(state, field)
+        restored = serde.loads_typed(serde.dumps_typed(value))
+        assert restored == value and type(restored) is type(value), field
 
 
 async def test_nothing_to_approve_means_no_pause() -> None:
