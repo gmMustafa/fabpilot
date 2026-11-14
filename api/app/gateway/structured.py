@@ -18,7 +18,7 @@ from typing import Protocol
 from pydantic import BaseModel, ValidationError
 
 from app.gateway.cache import CachePolicy
-from app.gateway.types import ChatMessage
+from app.gateway.types import ChatMessage, LLMError
 
 MAX_REPAIRS = 1  # one corrected attempt; a model that fails twice won't succeed on the third
 
@@ -26,6 +26,34 @@ MAX_REPAIRS = 1  # one corrected attempt; a model that fails twice won't succeed
 class ChatResult(Protocol):
     @property
     def text(self) -> str: ...
+
+    @property
+    def provider_requests(self) -> int: ...
+
+    @property
+    def tokens(self) -> int: ...
+
+
+@dataclass
+class Spend:
+    """A meter for LLM use (5.4b): chat_structured adds to it after EVERY gateway call, also when
+    the call fails or the repair round does, so a node can bill what a call really cost even
+    when it ends in an exception. calls = our gateway calls; attempts = provider requests (the
+    quota: one call can be up to LLM_MAX_ATTEMPTS of them); tokens = in + out."""
+
+    calls: int = 0
+    attempts: int = 0
+    tokens: int = 0
+
+    def add(self, result: ChatResult) -> None:
+        self.calls += 1
+        self.attempts += result.provider_requests
+        self.tokens += result.tokens
+
+    def add_failure(self, error: LLMError) -> None:
+        # A failed call carries its attempts (gateway); unknown means at least one was made.
+        self.calls += 1
+        self.attempts += len(error.attempts) or 1
 
 
 class ChatModel(Protocol):
@@ -82,13 +110,22 @@ async def chat_structured[T: BaseModel](
     *,
     purpose: str,
     max_tokens: int = 1200,
+    spend: Spend | None = None,
 ) -> Structured[T]:
     """Ask, parse, validate; on failure ask ONCE more, with the error. Raises
-    StructuredOutputError."""
+    StructuredOutputError. Every gateway call, failed or not, is added to `spend`."""
+    spend = spend if spend is not None else Spend()
     convo = [*messages, ChatMessage(role="user", content=schema_instruction(model))]
     error = ""
     for attempt in range(1 + MAX_REPAIRS):
-        answer = await gateway.chat(convo, max_tokens=max_tokens, temperature=0.0, purpose=purpose)
+        try:
+            answer = await gateway.chat(
+                convo, max_tokens=max_tokens, temperature=0.0, purpose=purpose
+            )
+        except LLMError as e:
+            spend.add_failure(e)
+            raise
+        spend.add(answer)
         try:
             return Structured(model.model_validate_json(extract_json(answer.text)), attempt + 1)
         except (ValueError, ValidationError) as e:  # ValidationError is a ValueError, kept explicit

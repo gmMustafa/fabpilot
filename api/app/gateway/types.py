@@ -5,6 +5,7 @@ retry/fallback logic never needs to know which HTTP library or vendor is underne
 """
 
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol
 
@@ -60,6 +61,15 @@ class LLMResponse:
     call_id: uuid.UUID | None = None  # groups this call's attempts in llm_calls
     cached: bool = False  # answered from the prompt cache (2.3): no request made
 
+    @property
+    def provider_requests(self) -> int:
+        """Requests this call cost at the provider (the free-tier quota): 0 from the cache."""
+        return 0 if self.cached else len(self.attempts)
+
+    @property
+    def tokens(self) -> int:
+        return self.tokens_in + self.tokens_out
+
 
 class LLMProvider(Protocol):
     """Anything that can answer a chat request (OpenRouter in 2.1b, Ollama in 2.4)."""
@@ -103,6 +113,10 @@ class CallRecorder(Protocol):
 
 class LLMError(Exception):
     """Base class for everything the gateway raises."""
+
+    # The provider requests this failed call made, so a caller can BILL a failure (5.4b's run
+    # budget). AllModelsFailedError sets it; the gateway sets it on errors it fails fast with.
+    attempts: Sequence["Attempt"] = ()
 
 
 class ProviderError(LLMError):

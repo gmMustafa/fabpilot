@@ -197,6 +197,14 @@ async def test_our_side_errors_fail_fast_without_touching_other_models(
     assert provider.calls == ["a"]  # not a single wasted request on "b"
 
 
+async def test_a_fail_fast_error_carries_every_attempt_it_cost() -> None:
+    """5.4b bills failed calls: a 503 retry, then a 400 that fails fast = 2 provider requests."""
+    gw, _, _ = make({"a": [ServerError("x", status=503), BadRequestError("bad", status=400)]})
+    with pytest.raises(BadRequestError) as exc:
+        await gw.chat(MSG)
+    assert [a.http_status for a in exc.value.attempts] == [503, 400]
+
+
 async def test_total_attempt_budget_caps_requests() -> None:
     """3 models x (1 + 2 retries) would be 9 requests; the budget stops at 4."""
     errs = [ServerError("x", status=500)] * 3

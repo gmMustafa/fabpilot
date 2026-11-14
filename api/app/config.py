@@ -56,6 +56,10 @@ class Settings(BaseSettings):
     # everywhere. TTL: free models change, a months-old answer no longer represents them.
     llm_cache_enabled: bool = True
     llm_cache_ttl_hours: float = 168.0
+    # Run budget of the incident agent (5.4b): provider requests and tokens per question. A
+    # normal run measured 2 requests / ~5,700 tokens; these stop a runaway, not a normal run.
+    agent_max_llm_attempts: int = 12
+    agent_max_tokens: int = 40_000
 
     @field_validator("openrouter_models", mode="before")
     @classmethod

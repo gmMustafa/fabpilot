@@ -13,9 +13,10 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from app.agent.budget import DEFAULT_BUDGET, RunBudget, billed
 from app.agent.state import AgentState, Evidence, Intent
 from app.agent.tools import ToolCallError, Tools
-from app.gateway.structured import ChatModel, StructuredOutputError, chat_structured
+from app.gateway.structured import ChatModel, Spend, StructuredOutputError, chat_structured
 from app.gateway.types import ChatMessage, LLMError
 
 INVESTIGATION_WINDOW = timedelta(days=3)
@@ -52,7 +53,9 @@ class TriageOut(BaseModel):
 # ------------------------------------------------------------------ triage
 
 
-async def triage(state: AgentState, tools: Tools, gateway: ChatModel) -> dict[str, Any]:
+async def triage(
+    state: AgentState, tools: Tools, gateway: ChatModel, budget: RunBudget = DEFAULT_BUDGET
+) -> dict[str, Any]:
     """Which machine, which kind of question. Regex and keyword rules first: "M-08" is a pattern,
     not a judgement, and every request we don't make is one of ~50 a day saved. The LLM is asked
     only when the question names no machine code ("the central coolant pump")."""
@@ -62,6 +65,9 @@ async def triage(state: AgentState, tools: Tools, gateway: ChatModel) -> dict[st
 
     machines = (await tools.call("sensors", "list_machines", {})).get("result", [])
     plant = "\n".join(f"{m['code']}: {m['name']} ({m['type']}, {m['line']})" for m in machines)
+    if refused := budget.check(state):
+        return {"machine": None, "llm_error": f"triage: {refused}"}
+    spend = Spend()
     try:
         out = await chat_structured(
             gateway,
@@ -77,9 +83,11 @@ async def triage(state: AgentState, tools: Tools, gateway: ChatModel) -> dict[st
             TriageOut,
             purpose="agent.triage",
             max_tokens=TRIAGE_TOKENS,
+            spend=spend,
         )
     except (LLMError, StructuredOutputError) as e:
-        return {"machine": None, "llm_error": f"triage: {e}"}
+        # Billed too: before 5.4b a failed triage call wasn't counted at all.
+        return {"machine": None, "llm_error": f"triage: {e}", **billed(state, spend)}
     known = {m["code"] for m in machines}
     machine = (
         out.value.machine if out.value.machine in known else None
@@ -87,7 +95,7 @@ async def triage(state: AgentState, tools: Tools, gateway: ChatModel) -> dict[st
     return {
         "machine": machine,
         "intent": out.value.intent,
-        "llm_requests": state.llm_requests + out.calls,
+        **billed(state, spend),
     }
 
 

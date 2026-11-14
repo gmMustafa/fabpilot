@@ -123,7 +123,9 @@ class AgentState(BaseModel):
     evidence: Evidence = Field(default_factory=Evidence)
     # loop bookkeeping
     follow_ups: int = 0  # extra tool calls the model asked for (max MAX_FOLLOW_UPS)
-    llm_requests: int = 0  # every LLM request of this run (the budget guard, 5.4)
+    llm_requests: int = 0  # our gateway CALLS of this run
+    llm_attempts: int = 0  # provider requests they cost (the quota; the run budget, 5.4b)
+    llm_tokens: int = 0  # tokens in + out (the run budget, 5.4b)
     # hypothesize / guardrails
     hypothesis: Hypothesis | None = None
     guard_errors: list[str] = Field(default_factory=list)

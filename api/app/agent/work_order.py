@@ -10,11 +10,12 @@ checks them. Not saved here: approval and saving come in 5.3.
 
 from typing import Any
 
+from app.agent.budget import DEFAULT_BUDGET, RunBudget, billed
 from app.agent.guardrails import cited_doc_ids
 from app.agent.nodes import call_as_evidence
 from app.agent.state import AgentState, Category, WorkOrderDraft
 from app.agent.tools import Tools
-from app.gateway.structured import ChatModel, StructuredOutputError, chat_structured
+from app.gateway.structured import ChatModel, Spend, StructuredOutputError, chat_structured
 from app.gateway.types import ChatMessage, LLMError
 
 VERIFICATION_SOP = "SOP-GEN-004"  # sensor verification: what a suspected false alarm needs first
@@ -100,7 +101,9 @@ def check_work_order(
     return errors
 
 
-async def draft_work_order(state: AgentState, tools: Tools, gateway: ChatModel) -> dict[str, Any]:
+async def draft_work_order(
+    state: AgentState, tools: Tools, gateway: ChatModel, budget: RunBudget = DEFAULT_BUDGET
+) -> dict[str, Any]:
     h = state.hypothesis
     assert h is not None
     sop_id = await pick_sop(state, tools)
@@ -112,8 +115,11 @@ async def draft_work_order(state: AgentState, tools: Tools, gateway: ChatModel) 
     sop_text = doc["text"]
 
     errors: list[str] = []
-    requests = state.llm_requests
+    spend = Spend()  # ONE meter across the draft and its retry
     for _ in range(1 + MAX_WORK_ORDER_RETRIES):
+        if refused := budget.check(state, spend):
+            # The diagnosis stands; there is just no draft (and the report says why).
+            return {"sop_id": sop_id, "work_order_errors": [refused], **billed(state, spend)}
         retry = (
             "\n\nYour previous draft was REJECTED:\n- " + "\n- ".join(errors) + "\nFix every point."
             if errors
@@ -133,20 +139,20 @@ async def draft_work_order(state: AgentState, tools: Tools, gateway: ChatModel) 
                 WorkOrderDraft,
                 purpose="agent.work_order",
                 max_tokens=WORK_ORDER_TOKENS,
+                spend=spend,
             )
         except (LLMError, StructuredOutputError) as e:
             return {
                 "sop_id": sop_id,
                 "work_order_errors": [f"the language model failed: {e}"],
-                "llm_requests": requests + 1,
+                **billed(state, spend),
             }
-        requests += out.calls
         errors = check_work_order(out.value, sop_id, sop_text, h.category)
         if not errors:
             return {
                 "sop_id": sop_id,
                 "sop_text": sop_text,
                 "work_order": out.value,
-                "llm_requests": requests,
+                **billed(state, spend),
             }
-    return {"sop_id": sop_id, "work_order_errors": errors, "llm_requests": requests}
+    return {"sop_id": sop_id, "work_order_errors": errors, **billed(state, spend)}

@@ -28,12 +28,14 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+from langgraph.errors import GraphRecursionError
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
 
 from app.agent import approval, nodes, reasoning, work_order
 from app.agent.approval import WorkOrderStore
+from app.agent.budget import DEFAULT_BUDGET, RunBudget
 from app.agent.state import (
     AgentState,
     Approval,
@@ -84,24 +86,25 @@ def build_graph(
     *,
     store: WorkOrderStore | None = None,
     checkpointer: BaseCheckpointSaver[Any] | None = None,
+    budget: RunBudget = DEFAULT_BUDGET,
 ) -> Graph:
     """With a `store`, a drafted work order PAUSES the run for a human decision (5.3); that
     needs a checkpointer to keep the paused state (default: in memory, one process)."""
 
     async def triage(state: AgentState) -> dict[str, Any]:
-        return await nodes.triage(state, tools, gateway)
+        return await nodes.triage(state, tools, gateway, budget)
 
     async def investigate(state: AgentState) -> dict[str, Any]:
         return await nodes.investigate(state, tools, clock)
 
     async def follow_up(state: AgentState) -> dict[str, Any]:
-        return await reasoning.follow_up(state, tools, gateway, clock)
+        return await reasoning.follow_up(state, tools, gateway, clock, budget)
 
     async def hypothesize(state: AgentState) -> dict[str, Any]:
-        return await reasoning.hypothesize(state, gateway, clock)
+        return await reasoning.hypothesize(state, gateway, clock, budget)
 
     async def draft_work_order(state: AgentState) -> dict[str, Any]:
-        return await work_order.draft_work_order(state, tools, gateway)
+        return await work_order.draft_work_order(state, tools, gateway, budget)
 
     def guard(state: AgentState) -> dict[str, Any]:
         return reasoning.guard(state, clock)
@@ -174,15 +177,31 @@ def build_graph(
     return g.compile(checkpointer=checkpointer or InMemorySaver(serde=checkpoint_serde()))
 
 
+# Steps per invocation (LangGraph counts every node run). Our longest path is 11: triage,
+# investigate, follow_up x2, (hypothesize, guard) x2, draft_work_order, report, await_approval;
+# a resume is a new invocation of 2. So 20 never stops a correct run, and a routing bug that
+# loops (a router that never says END) is cut off after 20 steps, not after the quota.
+RECURSION_LIMIT = 20
+
+
 def thread(thread_id: str) -> RunnableConfig:
-    """The run's name in the checkpointer: how a paused run is found again."""
-    return {"configurable": {"thread_id": thread_id}}
+    """The run's name in the checkpointer (how a paused run is found again) + the step limit."""
+    return {"configurable": {"thread_id": thread_id}, "recursion_limit": RECURSION_LIMIT}
+
+
+async def _invoke(graph: Graph, payload: AgentState | Command[Any], thread_id: str) -> AgentState:
+    try:
+        return AgentState.model_validate(await graph.ainvoke(payload, thread(thread_id)))
+    except GraphRecursionError as e:
+        raise RuntimeError(
+            f"run {thread_id!r} exceeded {RECURSION_LIMIT} steps: a routing loop (a bug), "
+            "stopped before it could spend more of the quota"
+        ) from e
 
 
 async def run_question(graph: Graph, question: str, thread_id: str = "default") -> AgentState:
     """Run until the end OR until the run pauses for approval; return the state at that point."""
-    out = await graph.ainvoke(AgentState(question=question), thread(thread_id))
-    state = AgentState.model_validate(out)
+    state = await _invoke(graph, AgentState(question=question), thread_id)
     # Every path passes report or insufficient, both of which set `answer` (also before a pause);
     # if that ever breaks, fail HERE, loudly, instead of handing the engineer an empty reply.
     if state.answer is None:
@@ -205,4 +224,4 @@ async def resume(
         # Resuming a run that isn't waiting would re-run nodes: refuse, never save twice.
         raise RuntimeError(f"run {thread_id!r} is not waiting for an approval")
     value = decision.model_dump(mode="json") if isinstance(decision, Approval) else decision
-    return AgentState.model_validate(await graph.ainvoke(Command(resume=value), thread(thread_id)))
+    return await _invoke(graph, Command(resume=value), thread_id)

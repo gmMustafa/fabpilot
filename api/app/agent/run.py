@@ -25,6 +25,7 @@ from typing import Any
 
 from langgraph.checkpoint.base import BaseCheckpointSaver
 
+from app.agent.budget import RunBudget
 from app.agent.checkpoint import postgres_checkpointer
 from app.agent.graph import Graph, build_graph, pending_approval, resume, run_question, thread
 from app.agent.state import AgentState, Approval, WorkOrderDraft
@@ -162,6 +163,9 @@ async def _main(args: argparse.Namespace) -> int:
     engine = create_engine(settings)
     gateway = build_gateway(settings, engine=engine)
     store = None if args.draft_only else SqlWorkOrderStore(engine)
+    budget = RunBudget(
+        settings.agent_max_llm_attempts, settings.agent_max_tokens, settings.llm_max_attempts
+    )
     try:
         async with postgres_checkpointer(
             str(settings.database_url), settings.db_connect_timeout
@@ -186,7 +190,9 @@ async def _main(args: argparse.Namespace) -> int:
             thread_id = str(uuid.uuid4())
             async with McpTools() as tools:
                 checkpointer = None if store is None else saver
-                graph = build_graph(tools, gateway, store=store, checkpointer=checkpointer)
+                graph = build_graph(
+                    tools, gateway, store=store, checkpointer=checkpointer, budget=budget
+                )
                 state = await run_question(graph, " ".join(args.question), thread_id)
                 print(state.answer)  # the report already ends with the request count
                 if store is not None and await pending_approval(graph, thread_id) is not None:

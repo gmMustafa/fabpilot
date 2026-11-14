@@ -11,12 +11,13 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from app.agent.budget import BUDGET_PREFIX, DEFAULT_BUDGET, RunBudget, billed, usage_line
 from app.agent.evidence_view import data_age_sentence, render
 from app.agent.guardrails import check_hypothesis
 from app.agent.nodes import call_as_evidence
 from app.agent.state import AgentState, Category, Hypothesis
 from app.agent.tools import Server, Tools
-from app.gateway.structured import ChatModel, StructuredOutputError, chat_structured
+from app.gateway.structured import ChatModel, Spend, StructuredOutputError, chat_structured
 from app.gateway.types import ChatMessage, LLMError
 
 MAX_HYPOTHESIS_RETRIES = 1
@@ -73,7 +74,11 @@ def _utcnow() -> datetime:
 
 
 async def follow_up(
-    state: AgentState, tools: Tools, gateway: ChatModel, now: Now = _utcnow
+    state: AgentState,
+    tools: Tools,
+    gateway: ChatModel,
+    now: Now = _utcnow,
+    budget: RunBudget = DEFAULT_BUDGET,
 ) -> dict[str, Any]:
     """ONE extra tool call the model chooses, from the allowlist, to fill a gap. Bounded by the
     routing (MAX_FOLLOW_UPS); a failing call is recorded as evidence like any other."""
@@ -83,6 +88,12 @@ async def follow_up(
         if ((state.evidence.alarm_log or {}).get("truncated"))
         else "Findings have no matching documents"
     )
+    if refused := budget.check(state):
+        # Like a failed follow-up: costs its slot, the run goes on with the evidence it has.
+        evidence = state.evidence.model_copy(deep=True)
+        evidence.errors.append(f"follow_up: {refused}")
+        return {"evidence": evidence, "follow_ups": state.follow_ups + 1}
+    spend = Spend()
     try:
         out = await chat_structured(
             gateway,
@@ -97,16 +108,13 @@ async def follow_up(
             FollowUpChoice,
             purpose="agent.follow_up",
             max_tokens=FOLLOW_UP_TOKENS,
+            spend=spend,
         )
     except LLM_FAILURES as e:
         # A failed follow-up costs its slot, not the run: continue with the evidence we have.
         evidence = state.evidence.model_copy(deep=True)
         evidence.errors.append(f"follow_up: {e}")
-        return {
-            "evidence": evidence,
-            "follow_ups": state.follow_ups + 1,
-            "llm_requests": state.llm_requests + 1,  # at least one request was spent
-        }
+        return {"evidence": evidence, "follow_ups": state.follow_ups + 1, **billed(state, spend)}
     choice, evidence = out.value, state.evidence.model_copy(deep=True)
     result = await call_as_evidence(
         tools, evidence.errors, FOLLOW_UP_TOOLS[choice.tool], choice.tool, choice.args
@@ -116,14 +124,12 @@ async def follow_up(
             setattr(evidence, REPLACES[choice.tool], result)
         else:
             evidence.extra.append({"tool": choice.tool, "args": choice.args, "result": result})
-    return {
-        "evidence": evidence,
-        "follow_ups": state.follow_ups + 1,
-        "llm_requests": state.llm_requests + out.calls,
-    }
+    return {"evidence": evidence, "follow_ups": state.follow_ups + 1, **billed(state, spend)}
 
 
-async def hypothesize(state: AgentState, gateway: ChatModel, now: Now = _utcnow) -> dict[str, Any]:
+async def hypothesize(
+    state: AgentState, gateway: ChatModel, now: Now = _utcnow, budget: RunBudget = DEFAULT_BUDGET
+) -> dict[str, Any]:
     text, _ = render(state, now())
     retry = (
         "\n\nYour previous answer was REJECTED by automatic checks:\n- "
@@ -132,6 +138,9 @@ async def hypothesize(state: AgentState, gateway: ChatModel, now: Now = _utcnow)
         if state.guard_errors
         else ""
     )
+    if refused := budget.check(state):
+        return {"hypothesis": None, "llm_error": f"hypothesize: {refused}"}
+    spend = Spend()
     try:
         out = await chat_structured(
             gateway,
@@ -144,16 +153,13 @@ async def hypothesize(state: AgentState, gateway: ChatModel, now: Now = _utcnow)
             Hypothesis,
             purpose="agent.hypothesize",
             max_tokens=HYPOTHESIS_TOKENS,
+            spend=spend,
         )
     except LLM_FAILURES as e:
         # Free models fail often (rotation, rate limits, truncation). The engineer still gets an
         # answer ("insufficient", with the reason), never a traceback.
-        return {
-            "hypothesis": None,
-            "llm_error": f"hypothesize: {e}",
-            "llm_requests": state.llm_requests + 1,
-        }
-    return {"hypothesis": out.value, "llm_requests": state.llm_requests + out.calls}
+        return {"hypothesis": None, "llm_error": f"hypothesize: {e}", **billed(state, spend)}
+    return {"hypothesis": out.value, **billed(state, spend)}
 
 
 def guard(state: AgentState, now: Now = _utcnow) -> dict[str, Any]:
@@ -222,7 +228,7 @@ def report(state: AgentState, now: Now = _utcnow) -> dict[str, Any]:
         lines += ["", "No work order drafted: " + "; ".join(state.work_order_errors)]
     if h.citations:
         lines += ["", "Sources: " + ", ".join(h.citations)]
-    lines += ["", f"({state.llm_requests} LLM request(s) used)"]
+    lines += ["", usage_line(state)]
     return {"answer": "\n".join(lines)}
 
 
@@ -239,6 +245,9 @@ def report_insufficient(state: AgentState, now: Now = _utcnow) -> dict[str, Any]
             + "; ".join(state.evidence.errors or ["no detail"])
             + ")"
         )
+    elif state.llm_error and BUDGET_PREFIX in state.llm_error:
+        # Not "the model failed": WE stopped, on purpose, before spending more of the quota.
+        why = f"this question's LLM budget is used up ({state.llm_error})"
     elif state.llm_error:
         why = (
             f"the language model failed ({state.llm_error}); the evidence was collected, "
@@ -249,6 +258,6 @@ def report_insufficient(state: AgentState, now: Now = _utcnow) -> dict[str, Any]
     answer = (
         f"I can't give a reliable answer: {why}.\n\n"
         f"{data_age_sentence(state.data_ends_at, now())}\n\n"
-        f"({state.llm_requests} LLM request(s) used)"
+        f"{usage_line(state)}"
     )
     return {"answer": answer}

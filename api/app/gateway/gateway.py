@@ -288,6 +288,7 @@ class LLMGateway:
                         decision = str(action)
                     logger.warning("LLM %s failed (%s) -> %s", model, _describe(error), decision)
                     if action is Action.FAIL:
+                        error.attempts = list(attempts)  # billable, like AllModelsFailedError
                         raise
                     if action is Action.NEXT_MODEL or retries >= cfg.max_retries_per_model:
                         break  # next model in the list

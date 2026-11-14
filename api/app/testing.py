@@ -110,9 +110,13 @@ class ScriptedChat:
 
     @dataclass(frozen=True)
     class Reply:
-        text: str
+        """Script one of these (instead of a str) to control what a reply costs (5.4b)."""
 
-    def __init__(self, *answers: str | Exception) -> None:
+        text: str
+        provider_requests: int = 1
+        tokens: int = 0
+
+    def __init__(self, *answers: "str | Exception | ScriptedChat.Reply") -> None:
         self._answers = list(answers)
         self.conversations: list[list[Any]] = []
 
@@ -123,4 +127,4 @@ class ScriptedChat:
         answer = self._answers.pop(0)
         if isinstance(answer, Exception):  # e.g. an LLMError: test the failure paths
             raise answer
-        return ScriptedChat.Reply(answer)
+        return answer if isinstance(answer, ScriptedChat.Reply) else ScriptedChat.Reply(answer)
