@@ -1,0 +1,135 @@
+# Gold questions for the retrieval eval (3.4). Run: cd api; uv run python ../evals/retrieval/run.py
+#
+# RULES (they protect the measurement):
+# 1. Write the QUESTION first, the way a technician or the agent would ask it, and only THEN look up
+#    the answer. Copying the document's wording measures copying, not search.
+# 2. `relevant`: every section that answers it. "MAN-PMP-001 §5" also accepts §5.1, §5.2 ...;
+#    "MAN-PMP-001" accepts any section. Be honest: if two sections answer it, list both.
+# 3. `machine_type` only if the asker would know it (an alarm on M-09 -> pump). Omit otherwise.
+# 4. Target mix (20): code 4, symptom 6, procedure 4, false_alarm 3, cross_machine 3.
+#
+# category: code | symptom | procedure | false_alarm | cross_machine
+
+questions:
+  - id: Q01
+    question: "What does a PRESS-LOW alarm on the inlet_filter_dp of the compressor mean?"
+    category: code
+    machine_type: compressor
+    relevant: ["MAN-CMP-001 §4"]
+
+  - id: Q02
+    question: "The conveyor keeps jerking, the roller speed goes up and down every couple of minutes"
+    category: symptom
+    machine_type: conveyor
+    relevant: ["MAN-CNV-001 §5.1", "SOP-CNV-008"]
+
+  - id: Q03
+    question: "M-09 is showing PRESS-LOW on suction_strainer_dp, what does that mean?"
+    category: code
+    machine_type: pump
+    relevant: ["MAN-PMP-001 §4", "SOP-PMP-006 §4"]
+
+  - id: Q04
+    question: "M-02 spindle stopped with a TRIP, where do I start looking?"
+    category: code
+    machine_type: cnc_mill
+    relevant: ["MAN-CNC-001 §4", "MAN-CNC-001 §6", "SOP-GEN-007 §4"]
+
+  - id: Q05
+    question: "RPM-LOW on the screw of M-05, what should I check?"
+    category: code
+    machine_type: injection_molder
+    relevant: ["MAN-IMM-001 §4", "MAN-IMM-001 §5.1"]
+
+  # ---------- symptom (Q02 + 5) ----------
+  - id: Q06
+    question: "The coolant pump sounds like it's pumping gravel and the outlet pressure keeps jumping around"
+    category: symptom
+    machine_type: pump
+    relevant: ["MAN-PMP-001 §5.3", "MAN-PMP-001 §5.2", "SOP-PMP-006"]
+
+  - id: Q07
+    question: "Spindle vibration on the mill goes up a little every day this week, temperature is still fine"
+    category: symptom
+    machine_type: cnc_mill
+    relevant: ["MAN-CNC-001 §5.1", "SOP-CNC-002", "INC-2025-006", "INC-2023-004"]
+
+  - id: Q08
+    question: "Parts from the molder come out incomplete with unmelted pellets in them, but the machine shows no alarm"
+    category: symptom
+    machine_type: injection_molder
+    relevant: ["MAN-IMM-001 §5.3", "INC-2025-002"]
+
+  - id: Q09
+    question: "The air compressor is running loaded nonstop and the plant air pressure still keeps sagging"
+    category: symptom
+    machine_type: compressor
+    relevant: ["MAN-CMP-001 §5.3", "INC-2026-006"]
+
+  - id: Q10
+    question: "Mill spindle bogs down and the current spikes, always at the same spot in the program"
+    category: symptom
+    machine_type: cnc_mill
+    relevant: ["MAN-CNC-001 §5.4", "INC-2024-017"]
+
+  # ---------- procedure (4) ----------
+  - id: Q11
+    question: "How do I safely replace the compressor's intake filter?"
+    category: procedure
+    machine_type: compressor
+    relevant: ["SOP-CMP-005", "MAN-CMP-001 §1"]
+
+  - id: Q12
+    question: "What are the steps to lock out a machine before I reach inside it?"
+    category: procedure
+    relevant: ["SOP-GEN-001"]
+
+  - id: Q13
+    question: "How do I change the bearings on the central coolant pump, and does the seal have to be replaced too?"
+    category: procedure
+    machine_type: pump
+    relevant: ["SOP-PMP-009"]
+
+  - id: Q14
+    question: "The conveyor drive tripped on overload. Can I just reset it and carry on?"
+    category: procedure
+    machine_type: conveyor
+    relevant: ["SOP-GEN-007", "MAN-CNV-001 §5.2"]
+
+  # ---------- false_alarm (3) ----------
+  - id: Q15
+    question: "M-01 spindle temperature alarm, but the reading kept going up over the weekend while nobody was running the machine"
+    category: false_alarm
+    machine_type: cnc_mill
+    relevant: ["MAN-CNC-001 §5.2", "MAN-CNC-001 §6", "SOP-GEN-004", "INC-2025-003"]
+
+  - id: Q16
+    # v2 (3.4 review): v1 copied the decisive evidence almost verbatim from INC-2024-016.
+    question: "M-06 keeps creeping up into an oil temperature alarm, yet it runs exactly like its twin next to it. What's going on?"
+    category: false_alarm
+    machine_type: injection_molder
+    relevant: ["INC-2024-016", "SOP-GEN-004", "MAN-IMM-001 §5.4", "MAN-IMM-001 §6"]
+
+  - id: Q17
+    # v2 (3.4 review): v1 copied the decisive evidence almost verbatim from INC-2026-007.
+    question: "The assembly conveyor's drive is in a temperature alarm although the line is only on its usual load. Do I have to stop it?"
+    category: false_alarm
+    machine_type: conveyor
+    relevant: ["INC-2026-007", "SOP-GEN-004", "MAN-CNV-001 §4"]
+
+  # ---------- cross_machine (3) ----------
+  # machine_type deliberately omitted: the answer lives in another machine's documents.
+  - id: Q18
+    question: "Both molders' hydraulic oil is getting hot at the same time"
+    category: cross_machine
+    relevant: ["MAN-IMM-001 §5.4", "MAN-IMM-001 §6", "MAN-PMP-001 §5.1", "INC-2024-008"]
+
+  - id: Q19
+    question: "Lines 1, 2 and 3 all threw faults within a few minutes of each other on the night shift"
+    category: cross_machine
+    relevant: ["MAN-CMP-001 §6", "MAN-CMP-001 §5.3", "INC-2026-006"]
+
+  - id: Q20
+    question: "M-02 lost coolant pressure. Could the central coolant pump M-09 be the cause?"
+    category: cross_machine
+    relevant: ["SOP-CNC-003 §1", "MAN-CNC-001 §5.3", "INC-2025-014"]

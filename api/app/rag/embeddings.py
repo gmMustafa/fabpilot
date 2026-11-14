@@ -42,7 +42,8 @@ class FastEmbedder:
 
         use_system_certificates()  # first run downloads the model (see runtime.py)
         self._model = TextEmbedding(model_name, cache_dir=str(cache_dir))
-        self._query_prefix = query_prefix  # before the first embed_query() below
+        # Public on purpose: the retrieval eval (3.4) switches it off to measure what it's worth.
+        self.query_prefix = query_prefix  # set before the first embed_query() below
         source = next(
             m.sources.hf for m in TextEmbedding._list_supported_models() if m.model == model_name
         )
@@ -68,9 +69,7 @@ class FastEmbedder:
         return vectors
 
     def embed_query(self, text: str) -> list[float]:
-        vector: list[float] = next(
-            iter(self._model.query_embed(self._query_prefix + text))
-        ).tolist()
+        vector: list[float] = next(iter(self._model.query_embed(self.query_prefix + text))).tolist()
         return vector
 
     def count_tokens(self, text: str) -> int:

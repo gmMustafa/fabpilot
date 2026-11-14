@@ -26,7 +26,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done (verified, quiz answered, 
 - [x] 3.1 Synthetic docs in `data/docs/` (manuals, SOPs, ~30 incident reports) — 5 manuals, 9 SOPs, 30 incidents (3.1c TODO written by Claude on request)
 - [x] 3.2 Ingestion: chunking, local embeddings, pgvector — fastembed (ONNX) instead of sentence-transformers, see LEARNING_LOG
 - [x] 3.3 Retrieval: vector + metadata filters, then hybrid with full-text search
-- [ ] 3.4 Retrieval eval: 20 questions, recall@5
+- [x] 3.4 Retrieval eval: 20 questions, recall@5 — hybrid default (hit@5 95 %, MRR 0.82); see evals/retrieval/results.md
 
 ## Phase 4 — MCP servers
 - [ ] 4.1 `sensor-mcp`: `list_machines`, `get_readings`, `get_alarm_log`, `detect_anomalies`

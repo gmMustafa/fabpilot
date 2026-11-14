@@ -190,6 +190,18 @@ async def _hydrate(conn: AsyncConnection, scored: list[tuple[int, float]]) -> li
     ]
 
 
+def cap_per_document(chunks: list[RetrievedChunk], max_per_doc: int) -> list[RetrievedChunk]:
+    """Keep the ranking, but at most `max_per_doc` chunks of any one document (3.3 finding: a
+    drift question returned 5 chunks of ONE incident and pushed the procedure out of the top k)."""
+    per_doc: dict[str, int] = {}
+    kept: list[RetrievedChunk] = []
+    for c in chunks:
+        if per_doc.get(c.doc_id, 0) < max_per_doc:
+            per_doc[c.doc_id] = per_doc.get(c.doc_id, 0) + 1
+            kept.append(c)
+    return kept
+
+
 async def search(
     engine: AsyncEngine,
     embedder: Embedder,
@@ -198,10 +210,17 @@ async def search(
     mode: Mode = Mode.HYBRID,
     filters: Filters = NO_FILTERS,
     k: int = 5,
+    max_per_doc: int | None = None,
 ) -> list[RetrievedChunk]:
-    """Top-k chunks for `query`. All modes return RRF-style scores, so results look the same."""
+    """Top-k chunks for `query`. All modes return RRF-style scores, so results look the same.
+
+    max_per_doc: diversity cap, applied AFTER fusion (so the fused order is kept). Fusion then
+    keeps every candidate, so the cap has enough to fill k slots from other documents.
+    """
     if not query.strip():
         return []
+    if max_per_doc is not None and max_per_doc < 1:
+        raise ValueError("max_per_doc must be >= 1")
     lists: list[list[int]] = []
     async with engine.connect() as conn:
         if mode in (Mode.VECTOR, Mode.HYBRID):
@@ -210,7 +229,10 @@ async def search(
             lists.append(await vector_search(conn, vec, filters))
         if mode in (Mode.TEXT, Mode.HYBRID):
             lists.append(await text_search(conn, query, filters))
-        return await _hydrate(conn, rrf_fuse(lists, limit=k))
+        if max_per_doc is None:
+            return await _hydrate(conn, rrf_fuse(lists, limit=k))
+        everything = await _hydrate(conn, rrf_fuse(lists, limit=CANDIDATES * len(lists)))
+    return cap_per_document(everything, max_per_doc)[:k]
 
 
 async def _main(args: argparse.Namespace) -> None:
