@@ -17,7 +17,7 @@ import sys
 from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Annotated
 
 import numpy as np
@@ -212,7 +212,7 @@ def _analyze(
     """DB rows -> aligned Series -> findings. Sensors can have gaps (machine off, data loss), so
     only the minutes where EVERY sensor has a value are analysed: the detectors compare sensors
     minute by minute and need one shared time grid."""
-    note = plant_data.coverage_note(start, end, data_starts_at, data_ends_at)
+    note = plant_data.coverage_note(start, end, data_starts_at, data_ends_at, now=datetime.now(UTC))
     if not raw:
         raise InvalidQueryError(f"no readings for {detail.code} in this window: {note}")
     shared = set.intersection(*(set(t for t, _ in rows) for rows in raw.values()))

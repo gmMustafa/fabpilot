@@ -218,6 +218,8 @@ async def test_descriptions_say_when_to_switch_tools(client: OneShotClient) -> N
     tools = {t.name: t for t in (await client.list_tools()).tools}
     desc = tools["search_docs"].description or ""
     assert "get_document" in desc and "list_incident_reports" in desc
+    # F19: the output spells it `fault: null`, the filter `fault="none"`: the description links them
+    assert 'fault="none"' in (tools["list_incident_reports"].description or "")
 
 
 def test_no_code_path_reads_the_sim_schema() -> None:

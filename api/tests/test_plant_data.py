@@ -86,3 +86,26 @@ def test_no_data_at_all() -> None:
     assert coverage_note(t(10, 0), t(11, 0), None, None) == (
         "no readings for this machine at all: nothing can be said about it"
     )
+
+
+# ------------------------------------------------------------------ data age (F18)
+
+
+def test_note_states_the_data_age_relative_to_now() -> None:
+    """Run 4, Q8: a window ending in the FUTURE gave "12 h before the end of the window", and a
+    model reported "silent for 12 h"; relative to now the data was ~26 h old."""
+    note = coverage_note(t(6, 0), t(14, 0), *DATA, now=t(14, 13, 50))
+    assert note is not None
+    assert note.startswith("data ends 2026-11-13 11:07 UTC, 12 h 53 min before the end")
+    assert note.endswith("The newest reading is 1 d 2 h 43 min old.")
+
+
+def test_age_is_added_when_the_window_starts_after_the_data() -> None:
+    note = coverage_note(t(13, 12, 36), t(14, 12, 36), *DATA, now=t(14, 12, 36))
+    assert note is not None and note.endswith("The newest reading is 1 d 1 h 29 min old.")
+
+
+def test_no_age_without_now_or_when_the_data_is_fresh() -> None:
+    assert "old" not in (coverage_note(t(6, 0), t(14, 0), *DATA) or "")  # now not given
+    fresh = coverage_note(t(6, 0), t(14, 0), *DATA, now=t(13, 11, 9))  # 2 min old: tolerated
+    assert fresh is not None and "old" not in fresh

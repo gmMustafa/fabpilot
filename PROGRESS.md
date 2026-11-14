@@ -32,7 +32,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done (verified, quiz answered, 
 - [x] 4.1 `sensor-mcp`: `list_machines`, `get_readings`, `get_alarm_log`, `detect_anomalies` (+ `get_machine`)
 - [x] 4.2 `docs-mcp`: `search_docs`, `get_incident_report` (+ `get_document`)
 - [x] 4.3 Test with MCP Inspector + Claude Desktop / Claude Code (3 runs, 16 findings: evals/mcp_sanity/protocol.md)
-- [ ] 4.4 Tool descriptions
+- [x] 4.4 Tool descriptions — and tool RESULTS: completeness fields, list_incident_reports, F1-F19 (evals/mcp_sanity/protocol.md)
 
 ## Phase 5 — Incident agent (LangGraph)
 - [ ] 5.1 LangGraph concepts + graph drawing

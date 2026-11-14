@@ -109,6 +109,7 @@ def coverage_note(
     data_starts_at: datetime | None,
     data_ends_at: datetime | None,
     tolerance: timedelta = COVERAGE_TOLERANCE,
+    now: datetime | None = None,
 ) -> str | None:
     """One sentence for the model when the requested window [start, end) and the machine's data
     don't match, or None when the data covers the window (within `tolerance` at both ends).
@@ -134,6 +135,11 @@ def coverage_note(
           of the window."
        ... or None if neither applies.
     Times are formatted as ISO 8601 UTC to the minute: f"{t:%Y-%m-%d %H:%M} UTC".
+
+    `now` (F18, Run 4): whenever the window extends past the data, also say how old the newest
+    reading is, e.g. " The newest reading is 1 d 2 h 43 min old." The gap to the WINDOW end and
+    the age of the data differ as soon as the window ends in the past or the future, and a model
+    reported "silent for 12 h" for a feed that was 26 h old.
     """
 
     def fmt(t: datetime) -> str:
@@ -143,11 +149,17 @@ def coverage_note(
     if data_starts_at is None or data_ends_at is None:
         return "no readings for this machine at all: nothing can be said about it"
 
+    age = (
+        f" The newest reading is {format_duration(now - data_ends_at)} old."
+        if now is not None and now - data_ends_at > tolerance
+        else ""
+    )
+
     # Case 2: Data ends before the requested window
     if data_ends_at < start:
         return (
             f"the window starts after the last reading ({fmt(data_ends_at)}): "
-            "there is no data in it; nothing can be said about this period"
+            "there is no data in it; nothing can be said about this period" + age
         )
 
     # Case 3: Data starts after the requested window
@@ -165,7 +177,7 @@ def coverage_note(
         duration = format_duration(end - data_ends_at)
         notes.append(
             f"data ends {fmt(data_ends_at)}, {duration} before the end of the "
-            f"window: nothing can be said about the last {duration}."
+            f"window: nothing can be said about the last {duration}." + age
         )
 
     if data_starts_at - start > tolerance:
@@ -331,7 +343,7 @@ async def get_readings(
         end=end,
         points=points,
         data_ends_at=last,
-        coverage_note=coverage_note(start, end, first, last),
+        coverage_note=coverage_note(start, end, first, last, now=datetime.now(UTC)),
     )
 
 
@@ -437,7 +449,7 @@ async def get_alarm_log(conn: AsyncConnection, code: str | None, query: AlarmQue
         truncated=total > len(alarms),
         alarms=alarms,
         data_ends_at=last,
-        coverage_note=coverage_note(query.start, query.end, first, last),
+        coverage_note=coverage_note(query.start, query.end, first, last, now=datetime.now(UTC)),
     )
 
 

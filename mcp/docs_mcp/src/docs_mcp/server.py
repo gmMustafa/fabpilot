@@ -181,7 +181,8 @@ def create_server(
         COMPLETE, not ranked: use it for "which / how many" questions ("false alarms on M-09",
         "has this sensor failed before?"). Each entry has the report's date, machine, fault,
         false_alarm and root_cause; read one in full with get_incident_report. `total_count` and
-        `truncated` say whether the list is cut."""
+        `truncated` say whether the list is cut. `fault: null` in an entry means a cause outside
+        the six simulated faults: filter for those reports with fault="none"."""
         with _as_tool_errors():
             async with ctx.request_context.lifespan_context.engine.connect() as conn:
                 return await library.list_incident_reports(

@@ -5,13 +5,13 @@ No database: the simulator produces 10-s signals in memory, we average them to 1
 important one: a detector that fires on normal operation teaches the agent to ignore it.
 """
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import numpy as np
 import pytest
 
 from app.config import get_settings
-from app.db.models import FaultType
+from app.db.models import FaultType, SensorKind
 from app.plant import PlantConfig, load_plant
 from sensor_mcp.anomaly import Finding, FindingKind, Series, analyze, robust_zscore
 from simulator.faults import Fault
@@ -167,3 +167,21 @@ def test_belt_slippage_shows_on_the_roller_speed(plant: PlantConfig) -> None:
     f = Fault(FaultType.BELT_SLIPPAGE, "M-04", start, start + timedelta(hours=4))
     findings = analyze(_series(plant, "M-04", MONDAY, days=1, faults=[f])).findings
     assert _of(findings, "drive_roller_speed")
+
+
+def test_high_limit_counts_right_after_start_up_like_the_plc() -> None:
+    """F17 (Run 4): out_of_band waited the 60-min warm-up for the HIGH side too, so a finding
+    began an hour after start-up although the value was too high at once. PLC rule: too high is
+    too high immediately; only LOW waits for the warm-up. Synthetic series: off for 2 h, then
+    running, vibration far above its band from the first running minute."""
+    n, off = 6 * 60, 2 * 60
+    times = np.array("2026-11-16T03:00", dtype="datetime64[s]") + np.arange(n) * np.timedelta64(
+        60, "s"
+    )
+    running = np.arange(n) >= off
+    current = Series(
+        "motor_current", SensorKind.CURRENT, "A", 10, 20, times, np.where(running, 15.0, 0.0)
+    )
+    vib = Series("vib", SensorKind.VIBRATION, "mm/s", 0.3, 2.8, times, np.where(running, 6.0, 0.4))
+    oob = _of(analyze([current, vib]).findings, "vib", FindingKind.OUT_OF_BAND)
+    assert oob and oob[0].start == datetime(2026, 11, 16, 5, 0, tzinfo=UTC)  # the start-up minute

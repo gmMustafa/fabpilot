@@ -31,7 +31,10 @@ from app.db.models import SensorKind
 FloatArray = npt.NDArray[np.float64]
 BoolArray = npt.NDArray[np.bool_]
 
-WARM_UP = 60  # minutes of running before values count as steady (matches the PLC alarms)
+# Minutes of running before LOW deviations and statistics count. Like the PLC: low values right
+# after start-up are normal (cold, pressure building up); HIGH values are a problem at once (F17:
+# waiting for HIGH too shifted a finding 24 min past the first alarm, read as a false timing fact).
+WARM_UP = 60
 SETTLED = 120  # minutes after stopping before "stopped" readings count as settled
 Z_WINDOW = 61  # minutes, centered window for the rolling median / MAD
 Z_LIMIT = 4.0  # robust z beyond this is a spike
@@ -170,8 +173,9 @@ def _pct(delta: float, band: float) -> float:
     return round(100.0 * delta / band, 1)
 
 
-def out_of_band(s: Series, steady: BoolArray) -> list[Finding]:
-    high = steady & (s.values > s.normal_max)
+def out_of_band(s: Series, running: BoolArray, steady: BoolArray) -> list[Finding]:
+    """HIGH while running (too hot is too hot, also right after start-up), LOW only when steady."""
+    high = running & (s.values > s.normal_max)
     low = steady & (s.values < s.normal_min) if s.kind in LOW_MATTERS else np.zeros_like(steady)
     findings = []
     for mask, word, limit in ((high, "above", s.normal_max), (low, "below", s.normal_min)):
@@ -388,7 +392,7 @@ def analyze(series: Sequence[Series]) -> Analysis:
     for s in series:
         if len(s.values) != len(current.values) or (s.times != current.times).any():
             raise ValueError(f"{s.name}: not on the same minute grid as {current.name}")
-        findings += out_of_band(s, steady) + spikes(s, steady) + trend(s, steady)
+        findings += out_of_band(s, running, steady) + spikes(s, steady) + trend(s, steady)
         findings += moves_when_stopped(s, settled_stop)
 
     speed = next((s for s in series if s.kind is SensorKind.RPM), None)
