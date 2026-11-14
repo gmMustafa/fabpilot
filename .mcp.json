@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "fabpilot-sensors": {
+      "type": "stdio",
+      "command": "uv",
+      "args": ["run", "sensor-mcp"]
+    },
+    "fabpilot-docs": {
+      "type": "stdio",
+      "command": "uv",
+      "args": ["run", "docs-mcp"]
+    }
+  }
+}
