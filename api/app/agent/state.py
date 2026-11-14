@@ -13,6 +13,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from app.db.models import WorkOrderPriority
+
 
 class Intent(StrEnum):
     DIAGNOSE = "diagnose"  # "what's wrong / why did it alarm?"
@@ -52,6 +54,31 @@ class Hypothesis(BaseModel):
     alternatives_ruled_out: list[RuledOut] = Field(default_factory=list)
     needs_action: bool = Field(description="True if someone should do something on the machine")
     next_check: str = Field(description="The single most useful next step for the engineer")
+
+
+class WorkAction(BaseModel):
+    text: str = Field(description="What to do, in the SOP's words where possible")
+    sop_step: str = Field(description="Where in the SOP this comes from, e.g. '§4 step 6'")
+    safety: bool = Field(description="True for lockout, hold points (⚠ STOP) and safety checks")
+
+
+class WorkPart(BaseModel):
+    part_no: str = Field(description="Exactly as in the SOP's parts table, e.g. 'AF-SC55-E'")
+    description: str
+    quantity: int = 1
+
+
+class WorkOrderDraft(BaseModel):
+    """A DRAFT for a human to approve (5.3); never saved by the agent on its own."""
+
+    title: str
+    priority: WorkOrderPriority
+    sop_ref: str = Field(description="The SOP this order follows, e.g. 'SOP-CMP-005'")
+    actions: list[WorkAction]
+    parts: list[WorkPart] = Field(default_factory=list)
+    duration: str = Field(description="From the SOP's scope, e.g. '30 min'")
+    staff: str = Field(description="From the SOP's scope, e.g. '1 technician'")
+    verification: str = Field(description="The SOP's acceptance criteria, in one or two lines")
 
 
 class Evidence(BaseModel):
@@ -94,5 +121,9 @@ class AgentState(BaseModel):
     # An LLM call that failed (all models down, output truncated, no valid JSON). A STATE, not
     # an exception: free models fail often, and the engineer must still get an answer.
     llm_error: str | None = None
+    # draft_work_order
+    sop_id: str | None = None  # the SOP read in full for the draft
+    work_order: WorkOrderDraft | None = None
+    work_order_errors: list[str] = Field(default_factory=list)  # why no draft was kept
     # report
     answer: str | None = None

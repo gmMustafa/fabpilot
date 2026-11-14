@@ -168,10 +168,18 @@ def guard(state: AgentState, now: Now = _utcnow) -> dict[str, Any]:
     return {"guard_errors": errors, "retries": state.retries + (1 if errors else 0)}
 
 
-def route_after_guard(state: AgentState) -> Literal["hypothesize", "insufficient", "report"]:
-    if not state.guard_errors:
-        return "report"
-    return "hypothesize" if state.retries <= MAX_HYPOTHESIS_RETRIES else "insufficient"
+GuardRoute = Literal["hypothesize", "insufficient", "draft_work_order", "report"]
+
+
+def route_after_guard(state: AgentState) -> GuardRoute:
+    """A rejected hypothesis: retry once, then insufficient. A valid one: a work order only if
+    someone has to DO something about a fault; "is M-05 OK?" -> healthy -> just report (5.1)."""
+    if state.guard_errors:
+        return "hypothesize" if state.retries <= MAX_HYPOTHESIS_RETRIES else "insufficient"
+    h = state.hypothesis
+    assert h is not None
+    fault = h.category in (Category.MACHINE_FAULT, Category.SENSOR_FAULT)
+    return "draft_work_order" if fault and h.needs_action else "report"
 
 
 _HEADLINE = {
@@ -196,6 +204,22 @@ def report(state: AgentState, now: Now = _utcnow) -> dict[str, Any]:
     if h.alternatives_ruled_out:
         lines += ["", "Ruled out:", *(f"- {r.cause}: {r.why}" for r in h.alternatives_ruled_out)]
     lines += ["", f"Next check: {h.next_check}"]
+    wo = state.work_order
+    if wo is not None:
+        lines += [
+            "",
+            f"DRAFT work order (not saved; needs approval): {wo.title}",
+            f"  priority {wo.priority.value} | {wo.duration} | {wo.staff} | follows {wo.sop_ref}",
+            *(
+                f"  {i}. {'[SAFETY] ' if a.safety else ''}{a.text} ({a.sop_step})"
+                for i, a in enumerate(wo.actions, start=1)
+            ),
+        ]
+        if wo.parts:
+            lines.append("  parts: " + ", ".join(f"{p.quantity}x {p.part_no}" for p in wo.parts))
+        lines.append(f"  done when: {wo.verification}")
+    elif state.work_order_errors:
+        lines += ["", "No work order drafted: " + "; ".join(state.work_order_errors)]
     if h.citations:
         lines += ["", "Sources: " + ", ".join(h.citations)]
     lines += ["", f"({state.llm_requests} LLM request(s) used)"]

@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from app.agent.graph import build_graph, run_question
+from app.agent.state import AgentState
 from app.agent.tools import FakeTools, ToolCallError
 from app.gateway.types import OutputTruncatedError
 from app.testing import ScriptedChat
@@ -26,7 +27,9 @@ def hypothesis_json(**kw: Any) -> str:
         "evidence": [{"id": "F1", "statement": "only discharge_temp moved, isolated"}],
         "citations": ["[MAN-CMP-001 §5.2]"],
         "alternatives_ruled_out": [{"cause": "clogged inlet filter", "why": "filter dp quiet"}],
-        "needs_action": True,
+        # False keeps these tests on their topic (guardrails, retries, insufficient); the work-order
+        # path (needs_action=True) is tested in test_work_order.py.
+        "needs_action": False,
         "next_check": "Compare with the mechanical thermometer (SOP-GEN-004).",
     }
     return json.dumps({**h, **kw})
@@ -47,24 +50,27 @@ TOOLS_WITH_CITATIONS = {
 }
 
 
-async def run(chat: ScriptedChat, tools: FakeTools, question: str = Q1) -> Any:
-    return await run_question(build_graph(tools, chat, clock=lambda: NOW), question)
+async def run(chat: ScriptedChat, tools: FakeTools, question: str = Q1) -> tuple[AgentState, str]:
+    """(final state, its answer). Typed, so mypy checks every test (was `-> Any` before 5.2c)."""
+    state = await run_question(build_graph(tools, chat, clock=lambda: NOW), question)
+    assert state.answer is not None
+    return state, state.answer
 
 
 async def test_happy_path_one_request_and_a_code_written_answer() -> None:
     chat = ScriptedChat(hypothesis_json())
-    state = await run(chat, fake_tools(TOOLS_WITH_CITATIONS))
+    state, answer = await run(chat, fake_tools(TOOLS_WITH_CITATIONS))
     assert state.llm_requests == 1  # triage needed none: "M-08" is in the question
-    assert state.answer.startswith("Most likely a FAULTY SENSOR")
-    assert "1 d 1 h 9 min ago" in state.answer  # the data-age caveat, computed by code
-    assert "Sources: [MAN-CMP-001 §5.2]" in state.answer
+    assert answer.startswith("Most likely a FAULTY SENSOR")
+    assert "1 d 1 h 9 min ago" in answer  # the data-age caveat, computed by code
+    assert "Sources: [MAN-CMP-001 §5.2]" in answer
 
 
 async def test_a_rejected_hypothesis_gets_one_retry_with_the_errors() -> None:
     invented = hypothesis_json(citations=["[SOP-CMP-099 §4]"])
     chat = ScriptedChat(invented, hypothesis_json())
-    state = await run(chat, fake_tools(TOOLS_WITH_CITATIONS))
-    assert state.llm_requests == 2 and state.answer.startswith("Most likely")
+    state, answer = await run(chat, fake_tools(TOOLS_WITH_CITATIONS))
+    assert state.llm_requests == 2 and answer.startswith("Most likely")
     retry_prompt = chat.conversations[1][1].content
     assert "REJECTED" in retry_prompt and "SOP-CMP-099" in retry_prompt
 
@@ -72,17 +78,17 @@ async def test_a_rejected_hypothesis_gets_one_retry_with_the_errors() -> None:
 async def test_two_rejections_end_insufficient_instead_of_guessing() -> None:
     invented = hypothesis_json(citations=["[SOP-CMP-099 §4]"])
     chat = ScriptedChat(invented, invented)
-    state = await run(chat, fake_tools(TOOLS_WITH_CITATIONS))
-    assert state.answer.startswith("I can't give a reliable answer")
-    assert "SOP-CMP-099" in state.answer and state.llm_requests == 2
+    state, answer = await run(chat, fake_tools(TOOLS_WITH_CITATIONS))
+    assert answer.startswith("I can't give a reliable answer")
+    assert "SOP-CMP-099" in answer and state.llm_requests == 2
 
 
 async def test_no_readings_end_insufficient_without_any_request() -> None:
     chat = ScriptedChat()  # any request would fail the test
     no_data = ToolCallError("detect_anomalies: no readings for M-08 in this window")
-    state = await run(chat, fake_tools({("sensors", "detect_anomalies"): no_data}))
+    state, answer = await run(chat, fake_tools({("sensors", "detect_anomalies"): no_data}))
     assert state.llm_requests == 0
-    assert "no sensor readings in the investigation window" in state.answer
+    assert "no sensor readings in the investigation window" in answer
 
 
 async def test_a_cut_alarm_log_triggers_one_follow_up_that_replaces_it() -> None:
@@ -100,7 +106,7 @@ async def test_a_cut_alarm_log_triggers_one_follow_up_that_replaces_it() -> None
         return cut if calls["n"] == 1 else full  # the follow-up gets the complete log
 
     tools = fake_tools({**TOOLS_WITH_CITATIONS, ("sensors", "get_alarm_log"): alarm_log})
-    state = await run(chat, tools)
+    state, _ = await run(chat, tools)
     assert state.follow_ups == 1 and state.llm_requests == 2
     assert state.evidence.alarm_log == full  # replaced, so the gap is closed: no 2nd follow-up
     assert state.evidence.anomalies == ANOMALIES
@@ -110,7 +116,7 @@ async def test_a_failing_llm_ends_insufficient_not_in_a_traceback() -> None:
     """Live run 5.2b: a reasoning model used all its tokens thinking, and the whole run crashed.
     Free models fail often; the engineer must still get an answer."""
     chat = ScriptedChat(OutputTruncatedError("no answer within max_tokens=1500"))
-    state = await run(chat, fake_tools(TOOLS_WITH_CITATIONS))
-    assert state.answer.startswith("I can't give a reliable answer: the language model failed")
-    assert "max_tokens" in state.answer and state.llm_requests == 1
+    state, answer = await run(chat, fake_tools(TOOLS_WITH_CITATIONS))
+    assert answer.startswith("I can't give a reliable answer: the language model failed")
+    assert "max_tokens" in answer and state.llm_requests == 1
     assert state.evidence.anomalies is not None  # the evidence was collected anyway

@@ -4,10 +4,11 @@
                           follow_up -> [route_after_investigate]   (max MAX_FOLLOW_UPS)
                           hypothesize -> guard -> [route_after_guard]
                                                     hypothesize   (max 1 retry)
-                                                    report -> END
+                                                    draft_work_order -> report   (a fault to act on)
+                                                    report -> END                (nothing to do)
                           insufficient -> END
 
-Not yet: the work order + approval (5.2c / 5.3) and the Postgres checkpointer (5.4).
+Not yet: approval before saving (5.3) and the Postgres checkpointer (5.4).
 
 The nodes are plain functions; here they become closures over their dependencies (tools,
 gateway, clock), so tests build the same graph with FakeTools and ScriptedChat.
@@ -20,7 +21,7 @@ from typing import Any
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
-from app.agent import nodes, reasoning
+from app.agent import nodes, reasoning, work_order
 from app.agent.state import AgentState
 from app.agent.tools import Tools
 from app.gateway.structured import ChatModel
@@ -43,6 +44,9 @@ def build_graph(
     async def hypothesize(state: AgentState) -> dict[str, Any]:
         return await reasoning.hypothesize(state, gateway, clock)
 
+    async def draft_work_order(state: AgentState) -> dict[str, Any]:
+        return await work_order.draft_work_order(state, tools, gateway)
+
     def guard(state: AgentState) -> dict[str, Any]:
         return reasoning.guard(state, clock)
 
@@ -59,6 +63,7 @@ def build_graph(
         ("follow_up", follow_up),
         ("hypothesize", hypothesize),
         ("guard", guard),
+        ("draft_work_order", draft_work_order),
         ("report", report),
         ("insufficient", insufficient),
     ]:
@@ -77,8 +82,14 @@ def build_graph(
     g.add_conditional_edges(
         "guard",
         reasoning.route_after_guard,
-        {"hypothesize": "hypothesize", "report": "report", "insufficient": "insufficient"},
+        {
+            "hypothesize": "hypothesize",
+            "draft_work_order": "draft_work_order",
+            "report": "report",
+            "insufficient": "insufficient",
+        },
     )
+    g.add_edge("draft_work_order", "report")
     g.add_edge("report", END)
     g.add_edge("insufficient", END)
     return g.compile()
@@ -88,5 +99,9 @@ async def run_question(
     graph: CompiledStateGraph[AgentState, None, AgentState, AgentState], question: str
 ) -> AgentState:
     """Run the graph to its end and return the final state, as a model again."""
-    result = await graph.ainvoke(AgentState(question=question))
-    return AgentState.model_validate(result)
+    state = AgentState.model_validate(await graph.ainvoke(AgentState(question=question)))
+    # Every path ends in report or insufficient, both of which set `answer`; if that ever breaks,
+    # fail HERE, loudly, instead of handing the engineer an empty reply.
+    if state.answer is None:
+        raise RuntimeError("the graph ended without an answer: a path misses report/insufficient")
+    return state
