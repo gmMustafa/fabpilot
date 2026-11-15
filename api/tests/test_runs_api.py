@@ -101,3 +101,34 @@ async def test_unknown_run_is_404() -> None:
     agent, _, _ = await paused_run()
     async with client_for(agent) as c:
         assert (await decide(c, "nope", action="approve", by=ME)).status_code == 404
+
+
+# ------------------------------------------------------------------ the approval queue (7.5)
+
+
+async def test_the_queue_lists_paused_runs_and_drops_them_once_decided() -> None:
+    agent, _, tid = await paused_run()
+    async with client_for(agent) as c:
+        queue = (await c.get("/runs", params={"status": "paused"})).json()
+        assert [(r["thread_id"], r["machine"], r["status"]) for r in queue] == [
+            (tid, "M-08", "paused")
+        ]
+        assert "work_order" not in queue[0]  # the draft is NOT in the list (no N+1)
+        await decide(c, tid, action="approve", by=ME)
+        assert (await c.get("/runs", params={"status": "paused"})).json() == []
+        assert (await c.get("/runs", params={"status": "done"})).json()[0]["thread_id"] == tid
+
+
+async def test_a_paused_run_returns_its_typed_draft() -> None:
+    agent, _, tid = await paused_run()
+    async with client_for(agent) as c:
+        body = (await c.get(f"/runs/{tid}")).json()
+    pending = body["pending_approval"]
+    assert pending["errors"] == [] and pending["work_order"]["sop_ref"] == "SOP-GEN-004"
+    assert "safety_notes" in pending["work_order"]  # WorkOrderDraftOut: the code fields too
+
+
+async def test_an_unknown_status_filter_is_422() -> None:
+    agent, _, _ = await paused_run()
+    async with client_for(agent) as c:
+        assert (await c.get("/runs", params={"status": "maybe"})).status_code == 422

@@ -22,6 +22,7 @@ from app.agent.state import AgentState
 from app.agent.tools import Tools
 from app.db.models import RunStatus
 from app.errors import NotFoundError
+from app.schemas import RunSummary
 from app.testing import ScriptedChat
 from tests.test_agent_graph import NOW, hypothesis_json
 from tests.test_approval import FakeStore
@@ -37,6 +38,7 @@ class FakeRepo(FakeStore):
         self.incidents = {7: IncidentRef(machine="M-08", question=QUESTION)}
         self.finished: dict[str, tuple[RunStatus, AgentState | None, str | None]] = {}
         self.started: list[str] = []
+        self.incident_of: dict[str, int] = {}
 
     async def create_incident(self, machine: str, question: str) -> int:
         if machine != "M-08":
@@ -50,6 +52,29 @@ class FakeRepo(FakeStore):
 
     async def run_started(self, thread_id: str, incident_id: int) -> None:
         self.started.append(thread_id)
+        self.incident_of[thread_id] = incident_id
+
+    async def list_runs(self, status: RunStatus | None, limit: int) -> list[RunSummary]:
+        rows = []
+        for thread_id in reversed(self.started):  # newest first
+            run_status = self.finished[thread_id][0] if thread_id in self.finished else "running"
+            if status is not None and run_status != status:
+                continue
+            incident = self.incidents[self.incident_of[thread_id]]
+            rows.append(
+                RunSummary(
+                    thread_id=thread_id,
+                    incident_id=self.incident_of[thread_id],
+                    machine=incident.machine,
+                    question=incident.question,
+                    status=RunStatus(run_status),
+                    started_at=NOW,
+                    finished_at=None,
+                    llm_attempts=0,
+                    llm_tokens=0,
+                )
+            )
+        return rows[:limit]
 
     async def run_finished(
         self, thread_id: str, status: RunStatus, state: AgentState | None, error: str | None

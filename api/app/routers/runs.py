@@ -19,18 +19,32 @@ Real authentication is its own step; until then the name is recorded, not verifi
 from collections.abc import AsyncIterator
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 
 from app.agent.service import AgentService, NotWaiting, RunEvent, SentBack, usage
 from app.agent.state import Approval
 from app.db.deps import get_agent
+from app.db.models import RunStatus
 from app.errors import NotFoundError
-from app.schemas import DecisionOut, InvalidRequestOut, RunOut, SentBackOut, error
+from app.schemas import DecisionOut, InvalidRequestOut, RunOut, RunSummary, SentBackOut, error
 
 router = APIRouter(prefix="/runs", tags=["runs"])
 
 Agent = Annotated[AgentService, Depends(get_agent)]
+
+
+@router.get("", response_model=list[RunSummary])
+async def list_runs(
+    agent: Agent,
+    status: Annotated[
+        RunStatus | None, Query(description="e.g. paused: the approval queue")
+    ] = None,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+) -> list[RunSummary]:
+    """Runs, newest first (7.5). status=paused is the approval queue: runs whose draft waits
+    for a decision. A row has no draft: open it with GET /runs/{thread_id}."""
+    return await agent.list_runs(status, limit)
 
 
 @router.post(

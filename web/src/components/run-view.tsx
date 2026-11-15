@@ -146,7 +146,7 @@ function Diagnosis({ h }: { h: Hypothesis }) {
   );
 }
 
-function Draft({ wo, errors }: { wo: WorkOrder; errors: string[] }) {
+function Draft({ wo, errors, threadId }: { wo: WorkOrder; errors: string[]; threadId: string }) {
   const notes = wo.safety_notes ?? [];
   const warnings = wo.reviewer_warnings ?? [];
   return (
@@ -193,9 +193,9 @@ function Draft({ wo, errors }: { wo: WorkOrder; errors: string[] }) {
             {w}
           </p>
         ))}
-        <p className="text-muted-foreground">
-          Approving, editing or rejecting it is the approval queue (7.5).
-        </p>
+        <Link href={`/approvals?run=${threadId}`} className="font-medium underline">
+          Decide in the approval queue →
+        </Link>
       </CardContent>
     </Card>
   );
@@ -277,7 +277,11 @@ export function RunView({ threadId }: { threadId: string }) {
             </Card>
           )}
           {state.approval && (
-            <Draft wo={state.approval.work_order} errors={state.approval.errors} />
+            <Draft
+              wo={state.approval.work_order}
+              errors={state.approval.errors}
+              threadId={threadId}
+            />
           )}
           {state.report && (
             <details className="text-sm">

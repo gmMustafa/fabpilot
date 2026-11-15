@@ -10,7 +10,7 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from app.agent.state import Hypothesis, WorkOrderDraft
-from app.db.models import AlarmSeverity, MachineStatus, MachineType, SensorKind
+from app.db.models import AlarmSeverity, MachineStatus, MachineType, RunStatus, SensorKind
 
 
 class _Out(BaseModel):
@@ -146,6 +146,22 @@ class IncidentOut(BaseModel):
     question: str
 
 
+class RunSummary(BaseModel):
+    """One run in a list (7.5: the approval queue). From the agent_runs table ONLY: the draft
+    lives in the checkpoint, and loading it for every row would be N+1 against Postgres; it is
+    loaded when a row is opened (GET /runs/{thread_id})."""
+
+    thread_id: str
+    incident_id: int
+    machine: str
+    question: str
+    status: RunStatus
+    started_at: datetime
+    finished_at: datetime | None
+    llm_attempts: int
+    llm_tokens: int
+
+
 class RunOut(BaseModel):
     """A run's current state (also after a restart: from the checkpointer). Use it to catch up
     after a dropped stream."""
@@ -156,7 +172,7 @@ class RunOut(BaseModel):
     machine: str | None = None
     data_ends_at: datetime | None = None
     hypothesis: Hypothesis | None = None  # structured diagnosis (7.4b); None if none passed
-    pending_approval: dict[str, Any] | None  # the draft waiting for a decision (6.2)
+    pending_approval: "PendingApproval | None"  # the draft waiting for a decision (typed, 7.5)
     usage: dict[str, int]
 
 
@@ -282,6 +298,14 @@ class WorkOrderDraftOut(WorkOrderDraft):
     reviewer_warnings: list[str] = Field(default_factory=list)  # e.g. steps left out
 
 
+class PendingApproval(BaseModel):
+    """What a paused run is waiting for (GET /runs/{id}): the draft and why the previous decision
+    was sent back. The same shape as the approval_required event."""
+
+    work_order: WorkOrderDraftOut
+    errors: list[str]
+
+
 class ApprovalRequiredEventData(BaseModel):
     work_order: WorkOrderDraftOut  # the draft waiting for a decision, TYPED for the dashboard
     errors: list[str]  # why the previous decision was sent back (empty the first time)
@@ -309,3 +333,5 @@ EVENT_DATA: dict[str, Any] = {
     "notice": NoticeEventData,
     "done": DoneEventData,
 }
+
+RunOut.model_rebuild()  # pending_approval refers to PendingApproval, defined further down

@@ -209,6 +209,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Runs
+         * @description Runs, newest first (7.5). status=paused is the approval queue: runs whose draft waits
+         *     for a decision. A row has no draft: open it with GET /runs/{thread_id}.
+         */
+        get: operations["listRuns"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/runs/{thread_id}": {
         parameters: {
             query?: never;
@@ -791,6 +812,16 @@ export interface components {
             message: string;
         };
         /**
+         * PendingApproval
+         * @description What a paused run is waiting for (GET /runs/{id}): the draft and why the previous decision
+         *     was sent back. The same shape as the approval_required event.
+         */
+        PendingApproval: {
+            /** Errors */
+            errors: string[];
+            work_order: components["schemas"]["WorkOrderDraftOut"];
+        };
+        /**
          * PlantOverview
          * @description Everything the overview needs in ONE response: ten tiles, one request (not ten).
          */
@@ -893,10 +924,7 @@ export interface components {
             hypothesis?: components["schemas"]["Hypothesis"] | null;
             /** Machine */
             machine?: string | null;
-            /** Pending Approval */
-            pending_approval: {
-                [key: string]: unknown;
-            } | null;
+            pending_approval: components["schemas"]["PendingApproval"] | null;
             /**
              * Status
              * @enum {string}
@@ -913,6 +941,39 @@ export interface components {
         RunStartedOut: {
             /** Events Url */
             events_url: string;
+            /** Thread Id */
+            thread_id: string;
+        };
+        /**
+         * RunStatus
+         * @enum {string}
+         */
+        RunStatus: "running" | "paused" | "done" | "failed";
+        /**
+         * RunSummary
+         * @description One run in a list (7.5: the approval queue). From the agent_runs table ONLY: the draft
+         *     lives in the checkpoint, and loading it for every row would be N+1 against Postgres; it is
+         *     loaded when a row is opened (GET /runs/{thread_id}).
+         */
+        RunSummary: {
+            /** Finished At */
+            finished_at: string | null;
+            /** Incident Id */
+            incident_id: number;
+            /** Llm Attempts */
+            llm_attempts: number;
+            /** Llm Tokens */
+            llm_tokens: number;
+            /** Machine */
+            machine: string;
+            /** Question */
+            question: string;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            status: components["schemas"]["RunStatus"];
             /** Thread Id */
             thread_id: string;
         };
@@ -1028,6 +1089,8 @@ export interface components {
             id: number;
             /** Incident Id */
             incident_id: number;
+            /** Machine */
+            machine: string | null;
             priority: components["schemas"]["WorkOrderPriority"];
             /** Rejected By */
             rejected_by: string | null;
@@ -1142,6 +1205,8 @@ export interface components {
             id: number;
             /** Incident Id */
             incident_id: number;
+            /** Machine */
+            machine: string | null;
             priority: components["schemas"]["WorkOrderPriority"];
             /** Rejected By */
             rejected_by: string | null;
@@ -1539,6 +1604,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PlantOverview"];
+                };
+            };
+        };
+    };
+    listRuns: {
+        parameters: {
+            query?: {
+                /** @description e.g. paused: the approval queue */
+                status?: components["schemas"]["RunStatus"] | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunSummary"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

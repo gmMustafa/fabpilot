@@ -81,6 +81,7 @@ async def test_list_filter_and_get(engine: AsyncEngine, client: AsyncClient) -> 
     assert [w["id"] for w in only] == [approved]
     one = (await client.get(f"/work-orders/{approved}")).json()
     assert one["title"] == "Verify the M-08 discharge_temp RTD" and one["sop_ref"] == "SOP-GEN-004"
+    assert one["machine"] == "M-08" and {w["machine"] for w in all_} == {"M-08"}  # 7.5
     assert one["draft"]["actions"][1]["safety"] is True  # the signed document
     assert (await client.get("/work-orders/999")).status_code == 404
 

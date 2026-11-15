@@ -1071,6 +1071,27 @@
         "title": "NoticeEventData",
         "type": "object"
       },
+      "PendingApproval": {
+        "description": "What a paused run is waiting for (GET /runs/{id}): the draft and why the previous decision\nwas sent back. The same shape as the approval_required event.",
+        "properties": {
+          "errors": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "work_order": {
+            "$ref": "#/components/schemas/WorkOrderDraftOut"
+          }
+        },
+        "required": [
+          "work_order",
+          "errors"
+        ],
+        "title": "PendingApproval",
+        "type": "object"
+      },
       "PlantOverview": {
         "description": "Everything the overview needs in ONE response: ten tiles, one request (not ten).",
         "properties": {
@@ -1332,14 +1353,12 @@
           "pending_approval": {
             "anyOf": [
               {
-                "additionalProperties": true,
-                "type": "object"
+                "$ref": "#/components/schemas/PendingApproval"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Pending Approval"
+            ]
           },
           "status": {
             "enum": [
@@ -1389,6 +1408,78 @@
           "events_url"
         ],
         "title": "RunStartedOut",
+        "type": "object"
+      },
+      "RunStatus": {
+        "enum": [
+          "running",
+          "paused",
+          "done",
+          "failed"
+        ],
+        "title": "RunStatus",
+        "type": "string"
+      },
+      "RunSummary": {
+        "description": "One run in a list (7.5: the approval queue). From the agent_runs table ONLY: the draft\nlives in the checkpoint, and loading it for every row would be N+1 against Postgres; it is\nloaded when a row is opened (GET /runs/{thread_id}).",
+        "properties": {
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "incident_id": {
+            "title": "Incident Id",
+            "type": "integer"
+          },
+          "llm_attempts": {
+            "title": "Llm Attempts",
+            "type": "integer"
+          },
+          "llm_tokens": {
+            "title": "Llm Tokens",
+            "type": "integer"
+          },
+          "machine": {
+            "title": "Machine",
+            "type": "string"
+          },
+          "question": {
+            "title": "Question",
+            "type": "string"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RunStatus"
+          },
+          "thread_id": {
+            "title": "Thread Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "thread_id",
+          "incident_id",
+          "machine",
+          "question",
+          "status",
+          "started_at",
+          "finished_at",
+          "llm_attempts",
+          "llm_tokens"
+        ],
+        "title": "RunSummary",
         "type": "object"
       },
       "SensorKind": {
@@ -1720,6 +1811,17 @@
             "title": "Incident Id",
             "type": "integer"
           },
+          "machine": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Machine"
+          },
           "priority": {
             "$ref": "#/components/schemas/WorkOrderPriority"
           },
@@ -1785,6 +1887,7 @@
         "required": [
           "id",
           "incident_id",
+          "machine",
           "thread_id",
           "status",
           "priority",
@@ -2011,6 +2114,17 @@
             "title": "Incident Id",
             "type": "integer"
           },
+          "machine": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Machine"
+          },
           "priority": {
             "$ref": "#/components/schemas/WorkOrderPriority"
           },
@@ -2076,6 +2190,7 @@
         "required": [
           "id",
           "incident_id",
+          "machine",
           "thread_id",
           "status",
           "priority",
@@ -2728,6 +2843,74 @@
         "summary": "Plant Overview",
         "tags": [
           "plant"
+        ]
+      }
+    },
+    "/runs": {
+      "get": {
+        "description": "Runs, newest first (7.5). status=paused is the approval queue: runs whose draft waits\nfor a decision. A row has no draft: open it with GET /runs/{thread_id}.",
+        "operationId": "listRuns",
+        "parameters": [
+          {
+            "description": "e.g. paused: the approval queue",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/RunStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "e.g. paused: the approval queue",
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RunSummary"
+                  },
+                  "title": "Response Listruns",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Runs",
+        "tags": [
+          "runs"
         ]
       }
     },

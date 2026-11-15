@@ -17,7 +17,7 @@ from pydantic import BaseModel
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from app.db.models import WorkOrder, WorkOrderPriority, WorkOrderStatus
+from app.db.models import Incident, Machine, WorkOrder, WorkOrderPriority, WorkOrderStatus
 from app.errors import NotFoundError
 
 
@@ -28,6 +28,7 @@ class InvalidTransition(Exception):
 class WorkOrderSummary(BaseModel):
     id: int
     incident_id: int
+    machine: str | None  # the incident's machine code (7.5: "WO #5 on M-08", not "incident 3")
     thread_id: str | None
     status: WorkOrderStatus
     priority: WorkOrderPriority
@@ -67,11 +68,12 @@ def check_transition(current: WorkOrderStatus, target: WorkOrderStatus) -> str |
     return f"a {current.value} work order can't become {target.value} (allowed: approved -> done)"
 
 
-def _summary_fields(wo: WorkOrder) -> dict[str, Any]:
+def _summary_fields(wo: WorkOrder, machine: str | None) -> dict[str, Any]:
     draft = wo.draft or {}
     return {
         "id": wo.id,
         "incident_id": wo.incident_id,
+        "machine": machine,
         "thread_id": wo.thread_id,
         "status": wo.status,
         "priority": wo.priority,
@@ -87,8 +89,20 @@ def _summary_fields(wo: WorkOrder) -> dict[str, Any]:
     }
 
 
-def _detail(wo: WorkOrder) -> WorkOrderDetail:
-    return WorkOrderDetail(**_summary_fields(wo), draft=wo.draft)
+def _detail(wo: WorkOrder, machine: str | None) -> WorkOrderDetail:
+    return WorkOrderDetail(**_summary_fields(wo, machine), draft=wo.draft)
+
+
+async def _machine_codes(conn: AsyncConnection, incident_ids: set[int]) -> dict[int, str]:
+    """incident id -> machine code for ALL rows in ONE query (a join per row would be N+1)."""
+    if not incident_ids:
+        return {}
+    rows = await conn.execute(
+        select(Incident.id, Machine.code)
+        .join(Machine, Machine.id == Incident.machine_id)
+        .where(Incident.id.in_(incident_ids))
+    )
+    return {incident_id: code for incident_id, code in rows}
 
 
 async def list_work_orders(
@@ -103,15 +117,17 @@ async def list_work_orders(
         query = query.where(WorkOrder.status == status)
     if incident_id is not None:
         query = query.where(WorkOrder.incident_id == incident_id)
-    rows = (await conn.execute(query)).all()
-    return [WorkOrderSummary(**_summary_fields(WorkOrder(**row._mapping))) for row in rows]
+    orders = [WorkOrder(**row._mapping) for row in (await conn.execute(query)).all()]
+    machines = await _machine_codes(conn, {wo.incident_id for wo in orders})
+    return [WorkOrderSummary(**_summary_fields(wo, machines.get(wo.incident_id))) for wo in orders]
 
 
 async def get_work_order(conn: AsyncConnection, work_order_id: int) -> WorkOrderDetail:
     row = (await conn.execute(select(WorkOrder).where(WorkOrder.id == work_order_id))).first()
     if row is None:
         raise NotFoundError(f"work order {work_order_id} does not exist")
-    return _detail(WorkOrder(**row._mapping))
+    wo = WorkOrder(**row._mapping)
+    return _detail(wo, (await _machine_codes(conn, {wo.incident_id})).get(wo.incident_id))
 
 
 async def complete(

@@ -67,3 +67,17 @@ async def test_a_decision_attaches_to_the_runs_incident_instead_of_a_new_one(
         incidents = await s.scalar(select(func.count()).select_from(Incident))
     assert wo.incident_id == incident_id and incidents == 1  # no second incident
     assert incident.root_cause == "Faulty discharge_temp RTD"  # the decided diagnosis
+
+
+async def test_the_run_list_filters_by_status_newest_first(engine: AsyncEngine) -> None:
+    repo = SqlAgentRepo(engine)
+    incident_id = await repo.create_incident("M-08", "Overheating?")
+    for thread_id, status in (("t-old", RunStatus.PAUSED), ("t-new", RunStatus.DONE)):
+        await repo.run_started(thread_id, incident_id)
+        await repo.run_finished(thread_id, status, None, None)
+    paused = await repo.list_runs(RunStatus.PAUSED, 50)
+    assert [(r.thread_id, r.machine, r.question) for r in paused] == [
+        ("t-old", "M-08", "Overheating?")
+    ]
+    everything = await repo.list_runs(None, 50)
+    assert [r.thread_id for r in everything] == ["t-new", "t-old"]  # newest first

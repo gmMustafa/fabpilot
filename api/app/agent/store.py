@@ -31,6 +31,7 @@ from app.db.models import (
     WorkOrderStatus,
 )
 from app.errors import NotFoundError
+from app.schemas import RunSummary
 
 
 class SqlWorkOrderStore:
@@ -130,6 +131,30 @@ class SqlAgentRepo(SqlWorkOrderStore):
                 )
             ).first()
         return IncidentRef(machine=row.code, question=row.title) if row else None
+
+    async def list_runs(self, status: RunStatus | None, limit: int) -> list[RunSummary]:
+        query = (
+            select(
+                AgentRun.thread_id,
+                AgentRun.incident_id,
+                Machine.code.label("machine"),
+                Incident.title.label("question"),
+                AgentRun.status,
+                AgentRun.started_at,
+                AgentRun.finished_at,
+                AgentRun.llm_attempts,
+                AgentRun.llm_tokens,
+            )
+            .join(Incident, Incident.id == AgentRun.incident_id)
+            .join(Machine, Machine.id == Incident.machine_id)
+            .order_by(AgentRun.started_at.desc())
+            .limit(limit)
+        )
+        if status is not None:
+            query = query.where(AgentRun.status == status)
+        async with self._sessions() as session:
+            rows = (await session.execute(query)).mappings().all()
+        return [RunSummary.model_validate(dict(r)) for r in rows]
 
     async def run_started(self, thread_id: str, incident_id: int) -> None:
         async with self._sessions.begin() as session:

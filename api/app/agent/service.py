@@ -42,6 +42,7 @@ from app.agent.tools import NoTools, Tools
 from app.db.models import RunStatus
 from app.errors import NotFoundError
 from app.gateway.structured import ChatModel
+from app.schemas import RunSummary
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +77,8 @@ class AgentRepo(WorkOrderStore, Protocol):
     async def create_incident(self, machine: str, question: str) -> int: ...
 
     async def incident(self, incident_id: int) -> IncidentRef | None: ...
+
+    async def list_runs(self, status: RunStatus | None, limit: int) -> list[RunSummary]: ...
 
     async def run_started(self, thread_id: str, incident_id: int) -> None: ...
 
@@ -209,6 +212,10 @@ class AgentService:
     async def create_incident(self, machine: str, question: str) -> int:
         """Raises NotFoundError for an unknown machine."""
         return await self._repo.create_incident(machine, question)
+
+    async def list_runs(self, status: RunStatus | None = None, limit: int = 50) -> list[RunSummary]:
+        """Newest first, from the agent_runs table (no checkpoint reads: see RunSummary)."""
+        return await self._repo.list_runs(status, limit)
 
     def is_running(self, thread_id: str) -> bool:
         handle = self.runs.get(thread_id)
