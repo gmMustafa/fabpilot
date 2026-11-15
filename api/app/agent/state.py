@@ -131,6 +131,10 @@ class AgentState(BaseModel):
     evidence: Evidence = Field(default_factory=Evidence)
     # loop bookkeeping
     follow_ups: int = 0  # extra tool calls the model asked for (max MAX_FOLLOW_UPS)
+    # Each follow-up the model CHOSE: {"tool", "args", "ok"}. The evidence alone loses it: a
+    # result that replaces the alarm log, or a failed call, leaves no trace there. The evals
+    # (8.3b) measure tool choice from this; the UI's step event names the tool from it too.
+    follow_up_calls: list[dict[str, Any]] = Field(default_factory=list)
     llm_requests: int = 0  # our gateway CALLS of this run
     llm_attempts: int = 0  # provider requests they cost (the quota; the run budget, 5.4b)
     llm_tokens: int = 0  # tokens in + out (the run budget, 5.4b)

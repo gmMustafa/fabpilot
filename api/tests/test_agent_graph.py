@@ -8,6 +8,7 @@ import json
 from datetime import UTC, datetime
 from typing import Any
 
+from app.agent.events import step_event
 from app.agent.graph import build_graph, run_question
 from app.agent.state import AgentState
 from app.agent.tools import FakeTools, ToolCallError
@@ -110,6 +111,13 @@ async def test_a_cut_alarm_log_triggers_one_follow_up_that_replaces_it() -> None
     assert state.follow_ups == 1 and state.llm_requests == 2
     assert state.evidence.alarm_log == full  # replaced, so the gap is closed: no 2nd follow-up
     assert state.evidence.anomalies == ANOMALIES
+    # replaced evidence leaves no trace in evidence.extra: the call log keeps the choice (8.3b)
+    assert state.evidence.extra == []
+    assert state.follow_up_calls == [
+        {"tool": "get_alarm_log", "args": {"machine": "M-08", "limit": 200}, "ok": True}
+    ]
+    update = {"follow_ups": 1, "follow_up_calls": state.follow_up_calls, "evidence": state.evidence}
+    assert step_event("follow_up", update) == {"follow_ups": 1, "tool": "get_alarm_log"}
 
 
 async def test_a_failing_llm_ends_insufficient_not_in_a_traceback() -> None:

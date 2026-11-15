@@ -9,6 +9,7 @@ on:
       - "simulator/**"
       - "mcp/**"
       - "evals/**" # agent eval scenarios are validated by tests (8.1)
+      - "!evals/results/**" # a committed eval RESULT is data, not code: no CI run
       - "data/**" # plant.yaml is validated by tests
       - "pyproject.toml" # workspace root: shared tool config + dev deps
       - "uv.lock"
@@ -22,6 +23,7 @@ on:
       - "simulator/**"
       - "mcp/**"
       - "evals/**"
+      - "!evals/results/**"
       - "data/**"
       - "pyproject.toml"
       - "uv.lock"

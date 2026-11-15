@@ -57,7 +57,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done (verified, quiz answered, 
 ## Phase 8 — Evals
 - [x] 8.1 Scenario format (YAML) — evals/ package, 3 example scenarios, checked in CI
 - [x] 8.2 ~50 scenarios — 48: 39 generated (fault × type × difficulty, drift, controls) + 9 hand-written (traps)
-- [ ] 8.3 Metrics — 8.3a done (eval DB, reset + inject, dry run, eval clock); 8.3b agent run, 8.3c grading next
+- [ ] 8.3 Metrics — 8.3a done (eval DB, reset + inject, dry run, eval clock); 8.3b done (agent runs, JSONL results, resume); 8.3c grading next
 - [ ] 8.4 LLM-as-judge
 - [ ] 8.5 Evals in GitHub Actions + README table
 - [ ] 8.6 Compare 2–3 free models

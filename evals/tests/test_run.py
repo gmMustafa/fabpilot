@@ -5,7 +5,8 @@ The integration tests use a throwaway database (app.testing), never fabpilot_eva
 
 import asyncio
 from collections import Counter
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager
 from datetime import timedelta
 
 import psycopg
@@ -14,12 +15,19 @@ from pydantic import PostgresDsn
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from agent_evals import evaldb
-from agent_evals.run import Prepared, prepare, select
+from agent_evals.results import Result
+from agent_evals.run import Prepared, prepare, run_scenario, select
 from agent_evals.scenario import Scenario
+from app.agent.checkpoint import pooled_checkpointer
+from app.agent.service import AgentService
+from app.agent.store import SqlAgentRepo
+from app.agent.tools import FakeTools, ToolCallError, Tools
 from app.config import Settings, get_settings
 from app.plant import PlantConfig
+from app.runtime import run
 from app.seed import seed
 from app.testing import (  # noqa: F401  (pytest fixtures, used by name)
+    ScriptedChat,
     alembic_cfg,
     migrated_db_url,
     sqlalchemy_url,
@@ -27,9 +35,8 @@ from app.testing import (  # noqa: F401  (pytest fixtures, used by name)
 )
 from simulator.db import connect
 from simulator.runner import backfill
-from simulator.signals import utc
 
-NOW = utc(2026, 11, 17, 12)  # a Tuesday, mid-shift
+NOW = evaldb.EVAL_NOW  # the eval clock: a Tuesday, mid-shift
 
 
 def scenario(
@@ -140,3 +147,58 @@ def test_a_control_after_a_fault_scenario_sees_a_healthy_machine(
     control = prepare(c, plant, scenario("c", "M-01"), NOW + timedelta(minutes=5))
     assert "VIB-HIGH" not in control.alarms  # the previous scenario's fault is gone
     assert c.execute("SELECT count(*) FROM sim.fault_injections").fetchone() == (0,)
+
+
+@pytest.mark.integration
+def test_run_scenario_records_a_run_without_any_llm_request(
+    conn: tuple[psycopg.Connection, PlantConfig],
+    temp_db_name: str,  # noqa: F811
+) -> None:
+    """The runner's whole path through the REAL AgentService (repo, checkpointer, the run task),
+    with fake tools: no readings in the window ends 'insufficient' before any LLM call, so the
+    empty ScriptedChat fails the test if the agent asks it anything."""
+    c, plant = conn
+    fake = FakeTools(
+        {
+            ("sensors", "get_machine"): {
+                "code": "M-01",
+                "type": "cnc_mill",
+                "last_reading_at": NOW.isoformat(),
+            },
+            ("sensors", "get_alarm_log"): {"alarms": [], "total_count": 0, "truncated": False},
+            ("sensors", "detect_anomalies"): ToolCallError("no readings in this window"),
+            ("docs", "list_incident_reports"): {"reports": []},
+            ("docs", "search_docs"): {"result": []},
+        }
+    )
+
+    @asynccontextmanager
+    async def tools() -> AsyncIterator[Tools]:
+        yield fake
+
+    async def go() -> Result:
+        url = sqlalchemy_url(temp_db_name)
+        engine = create_async_engine(url)
+        try:
+            async with pooled_checkpointer(url) as checkpointer:
+                service = AgentService(
+                    SqlAgentRepo(engine), ScriptedChat(), checkpointer, tools, clock=lambda: NOW
+                )
+                return await run_scenario(
+                    service,
+                    c,
+                    plant,
+                    scenario("f", "M-01", "bearing_wear"),
+                    settings_for(temp_db_name),
+                )
+        finally:
+            await engine.dispose()
+
+    r = run(go())
+    assert r.status == "done" and r.hypothesis is None
+    assert r.usage.provider_requests == 0
+    assert r.tools == ["get_machine", "get_alarm_log", "list_incident_reports"]
+    assert any("no readings" in e for e in r.evidence_errors)
+    # the investigation window comes from the EVAL clock, not the real time
+    _, tool, args = fake.calls[1]
+    assert tool == "get_alarm_log" and args["end"] <= (NOW + timedelta(minutes=1)).isoformat()

@@ -28,7 +28,7 @@ def step_event(node: str, update: dict[str, Any]) -> dict[str, Any] | None:
                              "data_ends_at": update["data_ends_at"].isoformat() or None}
                             (anomalies / alarm_log / incidents may be None: count 0)
     - "follow_up"        -> {"follow_ups": update["follow_ups"],
-                             "tool": the last evidence.extra entry's "tool", or None}
+                             "tool": the last follow_up_calls entry's "tool", or None}
     - "hypothesize"      -> hypothesis present: {"category": str, "confidence": str,
                                                  "root_cause": str}
                             None (the LLM failed or was refused): {"failed": update["llm_error"]}
@@ -61,10 +61,13 @@ def step_event(node: str, update: dict[str, Any]) -> dict[str, Any] | None:
         }
 
     def follow_up() -> dict[str, Any]:
-        extra = update["evidence"].extra
+        # From the call log, not evidence.extra: a follow-up that REPLACES the alarm log adds no
+        # extra entry, so extra[-1] named the previous tool (or none). No call (the LLM failed):
+        # the update has no log, tool None.
+        calls = update.get("follow_up_calls") or []
         return {
             "follow_ups": update["follow_ups"],
-            "tool": extra[-1].get("tool") if extra else None,
+            "tool": calls[-1]["tool"] if calls else None,
         }
 
     def hypothesize() -> dict[str, Any]:

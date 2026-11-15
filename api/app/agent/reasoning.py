@@ -131,7 +131,13 @@ async def follow_up(
             setattr(evidence, REPLACES[choice.tool], result)
         else:
             evidence.extra.append({"tool": choice.tool, "args": choice.args, "result": result})
-    return {"evidence": evidence, "follow_ups": state.follow_ups + 1, **billed(state, spend)}
+    call = {"tool": choice.tool, "args": choice.args, "ok": result is not None}
+    return {
+        "evidence": evidence,
+        "follow_ups": state.follow_ups + 1,
+        "follow_up_calls": [*state.follow_up_calls, call],
+        **billed(state, spend),
+    }
 
 
 async def hypothesize(
