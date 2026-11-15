@@ -9,7 +9,15 @@ import pytest
 from langgraph.checkpoint.memory import InMemorySaver
 
 from app.agent.graph import checkpoint_serde
-from app.agent.service import AgentService, Busy, IncidentRef, RunEvent, RunHandle
+from app.agent.service import (
+    KEEP_FINISHED,
+    AgentService,
+    Busy,
+    IncidentRef,
+    RunEvent,
+    RunHandle,
+    events_after,
+)
 from app.agent.state import AgentState
 from app.agent.tools import Tools
 from app.db.models import RunStatus
@@ -67,10 +75,8 @@ def q1_chat() -> ScriptedChat:
 
 
 async def drain(handle: RunHandle) -> list[RunEvent]:
-    events = []
-    while (event := await handle.events.get()) is not None:
-        events.append(event)
-    return events
+    """Everything one reader gets, from the start until the run is done (a log, not a queue)."""
+    return [event async for _, event in handle.follow()]
 
 
 async def test_a_run_streams_its_steps_then_report_approval_and_done() -> None:
@@ -156,3 +162,83 @@ async def test_a_crash_is_an_error_event_a_failed_run_and_a_free_slot() -> None:
     assert [e.event for e in events] == ["error", "done"]
     assert events[0].data["error"] == "RuntimeError: docs-mcp did not start"
     assert repo.finished[handle.thread_id][0] is RunStatus.FAILED and svc._active == 0
+
+
+# ------------------------------------------------------------------ events_after (your TODO, 7.4)
+
+
+@pytest.mark.parametrize(
+    ("header", "expected"),
+    [(None, 0), ("", 0), ("0", 0), ("3", 3), ("8", 8)],
+)
+def test_events_after_a_valid_last_event_id(header: str | None, expected: int) -> None:
+    assert events_after(8, header) == expected
+
+
+@pytest.mark.parametrize("header", ["abc", "3.5", "-1", " 3", "9", "1000", "²"])
+def test_events_after_resends_everything_when_in_doubt(header: str) -> None:
+    """Not a number, negative, or beyond this log (an id from ANOTHER buffer: before a server
+    restart, or another run): resend all. A duplicate step is harmless, a lost one is not."""
+    assert events_after(8, header) == 0
+
+
+# ------------------------------------------------------------------ the event log (7.4)
+
+
+async def test_two_readers_both_get_every_event() -> None:
+    """A queue would hand each event to ONE of them: the log + Condition wakes both."""
+    handle = await service(q1_chat(), FakeRepo()).start(7)
+    first, second = await asyncio.gather(drain(handle), drain(handle))
+    assert [e.event for e in first] == [e.event for e in second]
+    assert first[-1].event == "done"
+
+
+async def test_a_late_reader_gets_everything_from_the_start() -> None:
+    """A reload, or a second tab opened after the run finished."""
+    handle = await service(q1_chat(), FakeRepo()).start(7)
+    assert handle.task is not None
+    await handle.task
+    late = [event_id async for event_id, _ in handle.follow()]
+    assert late == list(range(1, len(handle.events) + 1))
+
+
+async def test_a_reconnect_with_last_event_id_gets_only_what_is_newer() -> None:
+    svc = service(q1_chat(), FakeRepo())
+    handle = await svc.start(7)
+    assert handle.task is not None
+    await handle.task
+    resumed = [i async for i, _ in await svc.events(handle.thread_id, last_event_id="5")]
+    assert resumed == list(range(6, len(handle.events) + 1))
+
+
+async def test_after_a_restart_the_result_is_rebuilt_from_the_checkpoint() -> None:
+    """A NEW service (another process / after a restart) sharing the checkpointer: no step log,
+    but a notice and the result instead of a 404."""
+    saver = InMemorySaver(serde=checkpoint_serde())
+    first = AgentService(FakeRepo(), q1_chat(), saver, fake_tools(), clock=lambda: NOW)
+    handle = await first.start(7)
+    assert handle.task is not None
+    await handle.task
+
+    restarted = AgentService(FakeRepo(), ScriptedChat(), saver, fake_tools(), clock=lambda: NOW)
+    events = [e async for _, e in await restarted.events(handle.thread_id)]
+    assert [e.event for e in events] == ["notice", "report", "approval_required", "done"]
+    assert events[-1].data["status"] == "paused"
+    assert events[1].data["answer"].startswith("Most likely a FAULTY SENSOR")
+
+
+async def test_an_unknown_run_has_no_events() -> None:
+    with pytest.raises(NotFoundError, match="nope"):
+        await service(q1_chat(), FakeRepo()).events("nope")
+
+
+async def test_only_the_newest_finished_logs_are_kept_in_memory() -> None:
+    svc = service(ScriptedChat(*([hypothesis_json()] * (KEEP_FINISHED + 3))), FakeRepo())
+    threads = []
+    for _ in range(KEEP_FINISHED + 3):
+        handle = await svc.start(7)
+        assert handle.task is not None
+        await handle.task
+        threads.append(handle.thread_id)
+    assert len(svc.runs) == KEEP_FINISHED
+    assert threads[0] not in svc.runs and threads[-1] in svc.runs

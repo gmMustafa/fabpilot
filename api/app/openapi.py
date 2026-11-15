@@ -76,7 +76,7 @@ def _errors_are_json(spec: dict[str, Any]) -> None:
 
 def install(app: FastAPI) -> None:
     """Publish the event payloads in the spec: FastAPI only includes models that a request or
-    a JSON response uses, and an SSE stream's `data` is neither. The investigate operation
+    a JSON response uses, and an SSE stream's `data` is neither. The events stream operation
     gets an `x-sse-events` map (event name -> schema): a vendor extension tools ignore, but a
     reader (and our test) can follow it."""
     from app.schemas import EVENT_DATA
@@ -90,8 +90,8 @@ def install(app: FastAPI) -> None:
         _errors_are_json(spec)
         events = event_components()
         spec["components"]["schemas"].update(events)
-        investigate = spec["paths"]["/incidents/{incident_id}/investigate"]["post"]
-        investigate["x-sse-events"] = {
+        stream = spec["paths"]["/runs/{thread_id}/events"]["get"]
+        stream["x-sse-events"] = {
             event: {"$ref": f"#/components/schemas/{event_schema_name(event)}"}
             for event in EVENT_DATA
         }

@@ -24,10 +24,11 @@ run's STATE is in Postgres either way.
 import asyncio
 import logging
 import uuid
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from functools import partial
 from typing import Any, Protocol
 
 from langgraph.checkpoint.base import BaseCheckpointSaver
@@ -43,6 +44,8 @@ from app.errors import NotFoundError
 from app.gateway.structured import ChatModel
 
 logger = logging.getLogger(__name__)
+
+KEEP_FINISHED = 50  # finished runs whose event logs stay in memory for replay
 
 
 class Busy(Exception):
@@ -83,16 +86,72 @@ class AgentRepo(WorkOrderStore, Protocol):
 
 @dataclass(frozen=True)
 class RunEvent:
-    event: str  # "step", "report", "approval_required", "error", "done"
+    event: str  # "step", "report", "approval_required", "error", "notice", "done"
     data: dict[str, Any]
+
+
+def events_after(count: int, last_event_id: str | None) -> int:
+    """How many of a run's `count` events the client already HAS, from its Last-Event-ID
+    header (the id of the last event it received; ids are 1, 2, 3, ...). The replay then
+    continues after that many.
+
+    Rules (tests/test_service.py::test_events_after_*). When in doubt, resend EVERYTHING: a
+    duplicate step on the screen is harmless, a lost one is not.
+    - no header (None or "")                       -> 0
+    - a whole number n with 0 <= n <= count        -> n
+    - anything else: not a number ("abc", "3.5"), negative, or n > count (an id from ANOTHER
+      buffer: before a server restart, or another run), or "²" (isdigit, not decimal) -> 0
+    """
+    # isdecimal, not isdigit: isdigit() is True for "²", and int("²") raises (a 500 from a header
+    # any client can send). isdecimal() is True exactly for what int() parses.
+    if not last_event_id or not last_event_id.isdecimal():
+        return 0
+
+    n = int(last_event_id)
+    return n if 0 <= n <= count else 0
 
 
 @dataclass
 class RunHandle:
+    """One run's events as a LOG (7.4), not a queue: any number of readers, each can join late
+    (replay from the start or from its Last-Event-ID) and then follows live. A queue would hand
+    each event to ONE reader and forget it."""
+
     thread_id: str
     incident_id: int
-    events: asyncio.Queue[RunEvent | None] = field(default_factory=asyncio.Queue)  # None = end
+    events: list[RunEvent] = field(default_factory=list)
+    finished: bool = False
     task: asyncio.Task[None] | None = None
+    # wakes EVERY waiting reader when an event arrives (a queue would wake one)
+    _changed: asyncio.Condition = field(default_factory=asyncio.Condition, repr=False)
+
+    async def emit(self, event: RunEvent) -> None:
+        async with self._changed:
+            self.events.append(event)
+            self._changed.notify_all()
+
+    async def finish(self) -> None:
+        async with self._changed:
+            self.finished = True
+            self._changed.notify_all()
+
+    def _has_news(self, sent: int) -> bool:
+        return len(self.events) > sent or self.finished
+
+    async def follow(self, after: int = 0) -> AsyncIterator[tuple[int, RunEvent]]:
+        """(id, event) for every event after the first `after`, then live until the run ends."""
+        sent = after
+        while True:
+            async with self._changed:
+                # partial() binds `sent` NOW: a lambda here would be a late-binding closure over a
+                # loop variable (ruff B023), a classic bug even where wait_for calls it at once
+                await self._changed.wait_for(partial(self._has_news, sent))
+                new, done = self.events[sent:], self.finished
+            for i, event in enumerate(new, start=sent + 1):
+                yield i, event
+            sent += len(new)
+            if done and sent >= len(self.events):
+                return
 
 
 def usage(state: AgentState) -> dict[str, int]:
@@ -118,7 +177,7 @@ class AgentService:
         self._repo, self._gateway, self._checkpointer = repo, gateway, checkpointer
         self._tools, self._budget, self._clock = tools, budget, clock
         self._max, self._active = max_concurrent, 0
-        self.runs: dict[str, RunHandle] = {}
+        self.runs: dict[str, RunHandle] = {}  # live and recently finished runs (their logs)
         # One lock per run (6.2): two decisions at the same moment would BOTH see "paused" and
         # both resume. With the lock the second waits, then sees "not waiting" (409).
         self._decision_locks: dict[str, asyncio.Lock] = {}
@@ -157,7 +216,7 @@ class AgentService:
         return handle
 
     async def _run(self, handle: RunHandle, incident: IncidentRef) -> None:
-        emit = handle.events.put_nowait
+        emit = handle.emit
         status, state, error = RunStatus.FAILED, None, None
         try:
             # McpTools opened and closed in THIS task (anyio cancel scopes, 4.1a).
@@ -173,12 +232,12 @@ class AgentService:
                     for node, node_update in update.items():
                         payload = None if node.startswith("__") else step_event(node, node_update)
                         if payload is not None:
-                            emit(RunEvent("step", {"node": node, **payload}))
+                            await emit(RunEvent("step", {"node": node, **payload}))
                 snapshot = await graph.aget_state(config)
             state = AgentState.model_validate(snapshot.values)
-            emit(RunEvent("report", {"answer": state.answer, "usage": usage(state)}))
+            await emit(RunEvent("report", {"answer": state.answer, "usage": usage(state)}))
             if snapshot.interrupts:
-                emit(RunEvent("approval_required", snapshot.interrupts[0].value))
+                await emit(RunEvent("approval_required", snapshot.interrupts[0].value))
                 status = RunStatus.PAUSED
             else:
                 status = RunStatus.DONE
@@ -186,15 +245,57 @@ class AgentService:
             # Not swallowed: logged with the traceback, recorded on the run, shown to the reader.
             logger.exception("agent run %s failed", handle.thread_id)
             error = f"{type(e).__name__}: {e}"
-            emit(RunEvent("error", {"error": error}))
+            await emit(RunEvent("error", {"error": error}))
         finally:
             self._active -= 1
             try:
                 await self._repo.run_finished(handle.thread_id, status, state, error)
             except Exception:
                 logger.exception("could not record the end of run %s", handle.thread_id)
-            emit(RunEvent("done", {"thread_id": handle.thread_id, "status": status.value}))
-            emit(None)
+            await emit(RunEvent("done", {"thread_id": handle.thread_id, "status": status.value}))
+            await handle.finish()
+            self._evict()
+
+    def _evict(self) -> None:
+        """Keep the logs of at most KEEP_FINISHED finished runs (oldest dropped first): every
+        log lives in RAM. A dropped run is still readable from the checkpointer (events())."""
+        finished = [t for t, h in self.runs.items() if h.finished]  # dicts keep insertion order
+        for thread_id in finished[: max(0, len(finished) - KEEP_FINISHED)]:
+            del self.runs[thread_id]
+
+    async def events(
+        self, thread_id: str, last_event_id: str | None = None
+    ) -> AsyncIterator[tuple[int, RunEvent]]:
+        """The run's events for one reader: replay after Last-Event-ID, then live. A run not in
+        this process (finished long ago, another process, before a restart) has no step log
+        any more: its RESULT is rebuilt from the checkpointer, after a notice saying so. Raises
+        NotFoundError for an unknown thread (call it BEFORE streaming: that's still a 404)."""
+        handle = self.runs.get(thread_id)
+        if handle is None:
+            found = await self.state(thread_id)
+            if found is None:
+                raise NotFoundError(f"run {thread_id!r} does not exist")
+            handle = self._rebuilt(thread_id, *found)
+        return handle.follow(events_after(len(handle.events), last_event_id))
+
+    def _rebuilt(
+        self, thread_id: str, state: AgentState, pending: dict[str, Any] | None
+    ) -> RunHandle:
+        handle = RunHandle(thread_id, state.incident_id or 0, finished=True)
+        status = "paused" if pending else ("done" if state.answer else "failed")
+        handle.events = [
+            RunEvent(
+                "notice",
+                {
+                    "message": "This run's live steps are no longer available; "
+                    "its result comes from the saved state."
+                },
+            ),
+            RunEvent("report", {"answer": state.answer, "usage": usage(state)}),
+            *([RunEvent("approval_required", pending)] if pending else []),
+            RunEvent("done", {"thread_id": thread_id, "status": status}),
+        ]
+        return handle
 
     async def decide(self, thread_id: str, approval: Approval) -> AgentState:
         """Hand a human's decision to a paused run. Needs no tools and no LLM: only

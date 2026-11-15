@@ -156,6 +156,11 @@ class RunOut(BaseModel):
     usage: dict[str, int]
 
 
+class RunStartedOut(BaseModel):
+    thread_id: str
+    events_url: str  # GET it as Server-Sent Events: the run's steps, replay + live
+
+
 class DecisionOut(BaseModel):
     thread_id: str
     status: Literal["approved", "rejected"]
@@ -270,6 +275,10 @@ class ErrorEventData(BaseModel):
     error: str
 
 
+class NoticeEventData(BaseModel):
+    message: str  # e.g. "live steps no longer available": shown, not acted upon
+
+
 class DoneEventData(BaseModel):
     thread_id: str
     status: Literal["running", "paused", "done", "failed"]
@@ -281,5 +290,6 @@ EVENT_DATA: dict[str, Any] = {
     "report": ReportEventData,
     "approval_required": ApprovalRequiredEventData,
     "error": ErrorEventData,
+    "notice": NoticeEventData,
     "done": DoneEventData,
 }

@@ -134,6 +134,6 @@ def test_every_event_a_real_run_emits_fits_its_published_model() -> None:
 
 def test_the_stream_operation_points_at_its_event_schemas() -> None:
     s = app.openapi()
-    events = s["paths"]["/incidents/{incident_id}/investigate"]["post"]["x-sse-events"]
+    events = s["paths"]["/runs/{thread_id}/events"]["get"]["x-sse-events"]
     for ref in events.values():
         assert ref["$ref"].split("/")[-1] in s["components"]["schemas"]

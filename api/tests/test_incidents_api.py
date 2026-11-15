@@ -48,10 +48,16 @@ def parse_sse(lines: list[str]) -> list[dict[str, Any]]:
     return events + ([current] if current else [])
 
 
-async def stream(c: AsyncClient, incident_id: int) -> tuple[int, dict[str, str], list[Any]]:
-    async with c.stream("POST", f"/incidents/{incident_id}/investigate") as r:
+async def stream(
+    c: AsyncClient, path: str, headers: dict[str, str] | None = None
+) -> tuple[int, dict[str, str], list[Any]]:
+    async with c.stream("GET", path, headers=headers or {}) as r:
         lines = [line async for line in r.aiter_lines()]
         return r.status_code, dict(r.headers), parse_sse(lines)
+
+
+async def start(c: AsyncClient, incident_id: int = 7) -> Any:
+    return await c.post(f"/incidents/{incident_id}/runs")
 
 
 # ------------------------------------------------------------------ incidents
@@ -74,12 +80,22 @@ async def test_unknown_machine_is_404_and_a_bad_code_is_422() -> None:
         ).status_code == 422
 
 
-# ------------------------------------------------------------------ the SSE stream
+# ------------------------------------------------------------------ start, then stream (7.4)
 
 
-async def test_investigate_streams_steps_report_approval_done_with_ids() -> None:
+async def test_start_is_202_with_the_events_url() -> None:
     async with client_for(service(q1_chat(), FakeRepo())) as c:
-        status, headers, events = await stream(c, 7)
+        r = await start(c)
+    assert r.status_code == 202
+    body = r.json()
+    assert body["events_url"] == f"/runs/{body['thread_id']}/events"
+    assert r.headers["location"] == f"/runs/{body['thread_id']}"
+
+
+async def test_the_events_stream_has_steps_report_approval_done_with_ids() -> None:
+    async with client_for(service(q1_chat(), FakeRepo())) as c:
+        events_url = (await start(c)).json()["events_url"]
+        status, headers, events = await stream(c, events_url)
     assert status == 200 and headers["content-type"].startswith("text/event-stream")
     names = [e["event"] for e in events]
     assert names == ["step"] * 5 + ["report", "approval_required", "done"]
@@ -88,13 +104,28 @@ async def test_investigate_streams_steps_report_approval_done_with_ids() -> None
     assert events[-1]["data"]["status"] == "paused"
 
 
-async def test_unknown_incident_is_404_before_any_stream() -> None:
+async def test_a_reconnect_with_last_event_id_gets_only_the_rest() -> None:
+    """What the browser's EventSource does by itself after a dropout."""
     async with client_for(service(q1_chat(), FakeRepo())) as c:
-        status, headers, _ = await stream(c, 99)
+        events_url = (await start(c)).json()["events_url"]
+        _, _, everything = await stream(c, events_url)
+        _, _, rest = await stream(c, events_url, {"Last-Event-ID": "6"})
+    assert [e["id"] for e in rest] == [e["id"] for e in everything[6:]]
+
+
+async def test_unknown_incident_is_404_on_start() -> None:
+    async with client_for(service(q1_chat(), FakeRepo())) as c:
+        r = await start(c, 99)
+    assert r.status_code == 404
+
+
+async def test_unknown_run_is_404_before_any_stream() -> None:
+    async with client_for(service(q1_chat(), FakeRepo())) as c:
+        status, headers, _ = await stream(c, "/runs/nope/events")
     assert status == 404 and headers["content-type"] == "application/json"
 
 
-async def test_busy_is_429_with_retry_after_before_any_stream() -> None:
+async def test_busy_is_429_with_retry_after() -> None:
     gate = asyncio.Event()
 
     @asynccontextmanager
@@ -105,7 +136,7 @@ async def test_busy_is_429_with_retry_after_before_any_stream() -> None:
     agent = service(ScriptedChat(), FakeRepo(), tools=slow_tools)
     first, second = await agent.start(7), await agent.start(7)  # both slots taken
     async with client_for(agent) as c:
-        r = await c.post("/incidents/7/investigate")
+        r = await start(c)
     assert r.status_code == 429 and r.headers["retry-after"] == "30"
     assert "2 investigation(s) running" in r.json()["detail"]
     gate.set()
@@ -117,7 +148,8 @@ async def test_busy_is_429_with_retry_after_before_any_stream() -> None:
 async def test_a_client_that_leaves_early_does_not_stop_the_run() -> None:
     agent = service(q1_chat(), FakeRepo())
     async with client_for(agent) as c:
-        async with c.stream("POST", "/incidents/7/investigate") as r:
+        events_url = (await start(c)).json()["events_url"]
+        async with c.stream("GET", events_url) as r:
             async for line in r.aiter_lines():
                 if line.startswith("event:"):
                     break  # the browser tab is closed after the first event
@@ -136,8 +168,9 @@ async def test_unknown_run_is_404() -> None:
         assert (await c.get("/runs/nope")).status_code == 404
 
 
-async def test_the_stream_documents_its_errors_in_openapi() -> None:
+async def test_start_documents_its_errors_in_openapi() -> None:
     async with client_for(service(q1_chat(), FakeRepo())) as c:
         spec = (await c.get("/openapi.json")).json()
-    responses = spec["paths"]["/incidents/{incident_id}/investigate"]["post"]["responses"]
-    assert {"404", "429"} <= set(responses)
+    responses = spec["paths"]["/incidents/{incident_id}/runs"]["post"]["responses"]
+    assert {"202", "404", "429"} <= set(responses)
+    assert "404" in spec["paths"]["/runs/{thread_id}/events"]["get"]["responses"]

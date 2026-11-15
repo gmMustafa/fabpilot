@@ -84,7 +84,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/incidents/{incident_id}/investigate": {
+    "/incidents/{incident_id}/runs": {
         parameters: {
             query?: never;
             header?: never;
@@ -94,11 +94,12 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Investigate
-         * @description Investigate an incident; streams the agent's steps live (Server-Sent Events). Closing the
-         *     stream does NOT stop the run: catch up with GET /runs/{thread_id} (in the `done` event).
+         * Start Run
+         * @description Start investigating an incident. 202 Accepted: the run is ACCEPTED, not finished; watch it
+         *     at `events_url` (Server-Sent Events, GET, so the browser's EventSource can reconnect on its
+         *     own). Closing that stream does not stop the run.
          */
-        post: operations["investigate"];
+        post: operations["startRun"];
         delete?: never;
         options?: never;
         head?: never;
@@ -243,6 +244,29 @@ export interface paths {
          *     this, and an edited draft goes through the same safety checks as the model's draft.
          */
         post: operations["decide"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/runs/{thread_id}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Run Events
+         * @description A run's events (7.4): step* (one per graph node), report, approval_required?, error?,
+         *     done, each with an id. Any number of readers; each gets everything so far (or what came
+         *     after its Last-Event-ID), then follows live until `done`. A run from before a restart:
+         *     a `notice`, then its result rebuilt from the checkpoint.
+         */
+        get: operations["runEvents"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -707,6 +731,11 @@ export interface components {
             /** Tokens Out */
             tokens_out: number;
         };
+        /** NoticeEventData */
+        NoticeEventData: {
+            /** Message */
+            message: string;
+        };
         /**
          * PlantOverview
          * @description Everything the overview needs in ONE response: ten tiles, one request (not ten).
@@ -798,6 +827,13 @@ export interface components {
             usage: {
                 [key: string]: number;
             };
+        };
+        /** RunStartedOut */
+        RunStartedOut: {
+            /** Events Url */
+            events_url: string;
+            /** Thread Id */
+            thread_id: string;
         };
         /**
          * SensorKind
@@ -1148,7 +1184,7 @@ export interface operations {
             };
         };
     };
-    investigate: {
+    startRun: {
         parameters: {
             query?: never;
             header?: never;
@@ -1160,12 +1196,12 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Successful Response */
-            200: {
+            202: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "text/event-stream": unknown;
+                    "application/json": components["schemas"]["RunStartedOut"];
                 };
             };
             /** @description No such incident */
@@ -1476,6 +1512,48 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SentBackOut"] | components["schemas"]["InvalidRequestOut"];
+                };
+            };
+        };
+    };
+    runEvents: {
+        parameters: {
+            query?: never;
+            header?: {
+                "Last-Event-ID"?: string | null;
+            };
+            path: {
+                thread_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": unknown;
+                };
+            };
+            /** @description No such run */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

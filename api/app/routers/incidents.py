@@ -1,9 +1,8 @@
 """Incidents and their investigations (6.1): create, investigate (SSE), and read a run.
 
     POST /incidents                     {machine, question} -> 201 {id, ...} + Location
-    POST /incidents/{id}/investigate    -> text/event-stream:
-                                           step* (one per graph node), report, approval_required?,
-                                           error?, done   (every event has an id: 1, 2, 3 ...)
+    POST /incidents/{id}/runs           -> 202 {thread_id, events_url}: the run is started;
+                                           watch it at GET /runs/{thread_id}/events (7.4)
     (a run's state and its decision: routers/runs.py)
 
 Why the run is started in a DEPENDENCY: an SSE response commits to "200 text/event-stream" with
@@ -11,16 +10,14 @@ its first byte, so "all slots busy" (429) or "no such incident" (404) must be de
 stream starts. FastAPI resolves dependencies first, then starts streaming the generator.
 """
 
-from collections.abc import AsyncIterator
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Response
-from fastapi.sse import EventSourceResponse, ServerSentEvent
 
 from app.agent.service import AgentService, Busy, RunHandle
 from app.db.deps import get_agent
 from app.errors import NotFoundError
-from app.schemas import IncidentIn, IncidentOut, error
+from app.schemas import IncidentIn, IncidentOut, RunStartedOut, error
 
 router = APIRouter(tags=["incidents"])
 
@@ -72,19 +69,20 @@ async def start_investigation(incident_id: int, agent: Agent) -> RunHandle:
 
 
 @router.post(
-    "/incidents/{incident_id}/investigate",
-    response_class=EventSourceResponse,
+    "/incidents/{incident_id}/runs",
+    response_model=RunStartedOut,
+    status_code=202,
     responses={
         404: error("No such incident"),
         429: error("All run slots busy: retry after the Retry-After header's seconds"),
     },
 )
-async def investigate(
-    handle: Annotated[RunHandle, Depends(start_investigation)],
-) -> AsyncIterator[ServerSentEvent]:
-    """Investigate an incident; streams the agent's steps live (Server-Sent Events). Closing the
-    stream does NOT stop the run: catch up with GET /runs/{thread_id} (in the `done` event)."""
-    n = 0
-    while (event := await handle.events.get()) is not None:
-        n += 1
-        yield ServerSentEvent(event=event.event, data=event.data, id=str(n))
+async def start_run(
+    handle: Annotated[RunHandle, Depends(start_investigation)], response: Response
+) -> RunStartedOut:
+    """Start investigating an incident. 202 Accepted: the run is ACCEPTED, not finished; watch it
+    at `events_url` (Server-Sent Events, GET, so the browser's EventSource can reconnect on its
+    own). Closing that stream does not stop the run."""
+    events_url = f"/runs/{handle.thread_id}/events"
+    response.headers["Location"] = f"/runs/{handle.thread_id}"
+    return RunStartedOut(thread_id=handle.thread_id, events_url=events_url)

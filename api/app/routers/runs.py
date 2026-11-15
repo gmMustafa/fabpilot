@@ -1,6 +1,7 @@
 """Agent runs (6.1/6.2): read a run's state, and hand a paused run the human's decision.
 
     GET  /runs/{thread_id}           -> state: running / paused / done / failed, answer, draft
+    GET  /runs/{thread_id}/events    -> the run's events as SSE: replay, then live (7.4)
     POST /runs/{thread_id}/decision  {action, by, edited?, reason?}
          200  saved: {status: approved | rejected, work_order_id}
          404  no such run
@@ -15,11 +16,13 @@ Known gap: `by` comes from the request body (no login yet), so anyone could type
 Real authentication is its own step; until then the name is recorded, not verified.
 """
 
+from collections.abc import AsyncIterator
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi.sse import EventSourceResponse, ServerSentEvent
 
-from app.agent.service import AgentService, NotWaiting, SentBack, usage
+from app.agent.service import AgentService, NotWaiting, RunEvent, SentBack, usage
 from app.agent.state import Approval
 from app.db.deps import get_agent
 from app.errors import NotFoundError
@@ -82,3 +85,32 @@ async def get_run(thread_id: str, agent: Agent) -> RunOut:
         pending_approval=pending,
         usage=usage(state),
     )
+
+
+async def open_events(
+    thread_id: str,
+    agent: Agent,
+    last_event_id: Annotated[str | None, Header(alias="Last-Event-ID")] = None,
+) -> AsyncIterator[tuple[int, RunEvent]]:
+    """Resolve the stream BEFORE it starts (an unknown run is still a 404 here, not an event).
+    The browser sends Last-Event-ID by itself when it reconnects after a dropout."""
+    try:
+        return await agent.events(thread_id, last_event_id)
+    except NotFoundError as e:
+        raise HTTPException(404, str(e)) from e
+
+
+@router.get(
+    "/{thread_id}/events",
+    response_class=EventSourceResponse,
+    responses={404: error("No such run")},
+)
+async def run_events(
+    events: Annotated[AsyncIterator[tuple[int, RunEvent]], Depends(open_events)],
+) -> AsyncIterator[ServerSentEvent]:
+    """A run's events (7.4): step* (one per graph node), report, approval_required?, error?,
+    done, each with an id. Any number of readers; each gets everything so far (or what came
+    after its Last-Event-ID), then follows live until `done`. A run from before a restart:
+    a `notice`, then its result rebuilt from the checkpoint."""
+    async for event_id, event in events:
+        yield ServerSentEvent(event=event.event, data=event.data, id=str(event_id))

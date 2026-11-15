@@ -964,6 +964,19 @@
         "title": "ModelStats",
         "type": "object"
       },
+      "NoticeEventData": {
+        "properties": {
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "title": "NoticeEventData",
+        "type": "object"
+      },
       "PlantOverview": {
         "description": "Everything the overview needs in ONE response: ten tiles, one request (not ten).",
         "properties": {
@@ -1177,6 +1190,24 @@
           "usage"
         ],
         "title": "RunOut",
+        "type": "object"
+      },
+      "RunStartedOut": {
+        "properties": {
+          "events_url": {
+            "title": "Events Url",
+            "type": "string"
+          },
+          "thread_id": {
+            "title": "Thread Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "thread_id",
+          "events_url"
+        ],
+        "title": "RunStartedOut",
         "type": "object"
       },
       "SensorKind": {
@@ -1997,10 +2028,10 @@
         ]
       }
     },
-    "/incidents/{incident_id}/investigate": {
+    "/incidents/{incident_id}/runs": {
       "post": {
-        "description": "Investigate an incident; streams the agent's steps live (Server-Sent Events). Closing the\nstream does NOT stop the run: catch up with GET /runs/{thread_id} (in the `done` event).",
-        "operationId": "investigate",
+        "description": "Start investigating an incident. 202 Accepted: the run is ACCEPTED, not finished; watch it\nat `events_url` (Server-Sent Events, GET, so the browser's EventSource can reconnect on its\nown). Closing that stream does not stop the run.",
+        "operationId": "startRun",
         "parameters": [
           {
             "in": "path",
@@ -2013,26 +2044,11 @@
           }
         ],
         "responses": {
-          "200": {
+          "202": {
             "content": {
-              "text/event-stream": {
-                "itemSchema": {
-                  "properties": {
-                    "data": {
-                      "type": "string"
-                    },
-                    "event": {
-                      "type": "string"
-                    },
-                    "id": {
-                      "type": "string"
-                    },
-                    "retry": {
-                      "minimum": 0,
-                      "type": "integer"
-                    }
-                  },
-                  "type": "object"
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunStartedOut"
                 }
               }
             },
@@ -2069,27 +2085,10 @@
             "description": "All run slots busy: retry after the Retry-After header's seconds"
           }
         },
-        "summary": "Investigate",
+        "summary": "Start Run",
         "tags": [
           "incidents"
-        ],
-        "x-sse-events": {
-          "approval_required": {
-            "$ref": "#/components/schemas/ApprovalRequiredEventData"
-          },
-          "done": {
-            "$ref": "#/components/schemas/DoneEventData"
-          },
-          "error": {
-            "$ref": "#/components/schemas/ErrorEventData"
-          },
-          "report": {
-            "$ref": "#/components/schemas/ReportEventData"
-          },
-          "step": {
-            "$ref": "#/components/schemas/StepEventData"
-          }
-        }
+        ]
       }
     },
     "/machines": {
@@ -2612,6 +2611,110 @@
         "tags": [
           "runs"
         ]
+      }
+    },
+    "/runs/{thread_id}/events": {
+      "get": {
+        "description": "A run's events (7.4): step* (one per graph node), report, approval_required?, error?,\ndone, each with an id. Any number of readers; each gets everything so far (or what came\nafter its Last-Event-ID), then follows live until `done`. A run from before a restart:\na `notice`, then its result rebuilt from the checkpoint.",
+        "operationId": "runEvents",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "thread_id",
+            "required": true,
+            "schema": {
+              "title": "Thread Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Last-Event-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Last-Event-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {
+                "itemSchema": {
+                  "properties": {
+                    "data": {
+                      "type": "string"
+                    },
+                    "event": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "retry": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "No such run"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Run Events",
+        "tags": [
+          "runs"
+        ],
+        "x-sse-events": {
+          "approval_required": {
+            "$ref": "#/components/schemas/ApprovalRequiredEventData"
+          },
+          "done": {
+            "$ref": "#/components/schemas/DoneEventData"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ErrorEventData"
+          },
+          "notice": {
+            "$ref": "#/components/schemas/NoticeEventData"
+          },
+          "report": {
+            "$ref": "#/components/schemas/ReportEventData"
+          },
+          "step": {
+            "$ref": "#/components/schemas/StepEventData"
+          }
+        }
       }
     },
     "/work-orders": {
