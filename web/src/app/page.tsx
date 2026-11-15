@@ -1,14 +1,13 @@
 import { Suspense } from "react";
 
 import { ApiStatus } from "@/components/api-status";
-import { MachineTable } from "@/components/machine-table";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { PlantOverview } from "@/components/plant-overview";
 
-// The static SHELL (header, card) is prerendered at build time; the two async Server
-// Components stream in at request time inside their <Suspense> boundaries (Cache Components).
+// The static shell (header) is prerendered; ApiStatus streams in from the server; the plant
+// overview is a Client Component that loads and refreshes itself in the browser.
 export default function Home() {
   return (
-    <main className="mx-auto flex max-w-6xl flex-col gap-6 p-6">
+    <main className="mx-auto flex max-w-7xl flex-col gap-6 p-6">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">FabPilot</h1>
@@ -18,16 +17,7 @@ export default function Home() {
           <ApiStatus />
         </Suspense>
       </header>
-      <Card>
-        <CardHeader>
-          <CardTitle>Machines</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Suspense fallback={<p className="text-sm text-muted-foreground">Loading machines…</p>}>
-            <MachineTable />
-          </Suspense>
-        </CardContent>
-      </Card>
+      <PlantOverview />
     </main>
   );
 }

@@ -34,6 +34,22 @@ class MachineOut(_Out):
     last_reading_at: datetime | None = None  # newest reading of any sensor; None = never
 
 
+class MachineTile(MachineOut):
+    """One machine on the plant overview (7.2): MachineOut plus its ACTIVE alarms (not cleared)."""
+
+    active_alarms: int = 0
+    worst_severity: AlarmSeverity | None = None  # of the active alarms; None = none active
+    latest_alarm: str | None = None  # code of the newest active alarm, e.g. "TEMP-CRIT"
+    latest_alarm_at: datetime | None = None
+
+
+class PlantOverview(_Out):
+    """Everything the overview needs in ONE response: ten tiles, one request (not ten)."""
+
+    machines: list[MachineTile]  # ordered by line, then code
+    generated_at: datetime  # server time: the client shows data age relative to the SERVER
+
+
 class MachineDetail(MachineOut):
     sensors: list[SensorOut]
 

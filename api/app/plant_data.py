@@ -12,6 +12,7 @@ import math
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
+from typing import Any
 
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncConnection
@@ -26,6 +27,8 @@ from app.schemas import (
     AlarmOut,
     MachineDetail,
     MachineOut,
+    MachineTile,
+    PlantOverview,
     ReadingBucket,
     ReadingsOut,
     SensorOut,
@@ -243,6 +246,41 @@ async def list_machines(conn: AsyncConnection, line: str | None = None) -> list[
     rows = (await conn.execute(query)).mappings().all()
     last = await _last_readings(conn)
     return [MachineOut.model_validate({**r, "last_reading_at": last.get(r["code"])}) for r in rows]
+
+
+async def _active_alarms(conn: AsyncConnection) -> dict[str, dict[str, Any]]:
+    """Per machine code: the alarms still active (cleared_at IS NULL), aggregated in ONE query:
+    how many, the worst severity, and the newest one. Severity is ranked in SQL (critical >
+    warning > info), not by the alphabet."""
+    rows = await conn.execute(
+        text("""
+            SELECT m.code,
+                   count(*) AS active_alarms,
+                   (array_agg(a.severity ORDER BY
+                       CASE a.severity WHEN 'critical' THEN 3 WHEN 'warning' THEN 2 ELSE 1 END DESC,
+                       a.time DESC))[1] AS worst_severity,
+                   (array_agg(a.code ORDER BY a.time DESC))[1] AS latest_alarm,
+                   max(a.time) AS latest_alarm_at
+            FROM alarms a JOIN machines m ON m.id = a.machine_id
+            WHERE a.cleared_at IS NULL
+            GROUP BY m.code
+        """)
+    )
+    return {row.code: dict(row._mapping) for row in rows}
+
+
+async def plant_overview(conn: AsyncConnection, now: datetime) -> PlantOverview:
+    """All machines with their active alarms, ordered by line then code (7.2). Three queries in
+    total (machines, last readings, alarms), however many machines there are: no N+1."""
+    machines = await list_machines(conn)
+    alarms = await _active_alarms(conn)
+    tiles = [
+        MachineTile.model_validate(
+            {**m.model_dump(), **{k: v for k, v in alarms.get(m.code, {}).items() if k != "code"}}
+        )
+        for m in sorted(machines, key=lambda m: (m.line, m.code))
+    ]
+    return PlantOverview(machines=tiles, generated_at=now)
 
 
 async def _machine(conn: AsyncConnection, code: str) -> Machine:

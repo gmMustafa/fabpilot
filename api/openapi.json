@@ -1,6 +1,15 @@
 {
   "components": {
     "schemas": {
+      "AlarmSeverity": {
+        "enum": [
+          "info",
+          "warning",
+          "critical"
+        ],
+        "title": "AlarmSeverity",
+        "type": "string"
+      },
       "Approval": {
         "description": "The human's decision on a draft (5.3). Comes from OUTSIDE the agent (CLI, later the API):\nuntrusted input, so it is validated like any other boundary, and an edit is re-checked.",
         "properties": {
@@ -667,6 +676,94 @@
         "title": "MachineStatus",
         "type": "string"
       },
+      "MachineTile": {
+        "description": "One machine on the plant overview (7.2): MachineOut plus its ACTIVE alarms (not cleared).",
+        "properties": {
+          "active_alarms": {
+            "default": 0,
+            "title": "Active Alarms",
+            "type": "integer"
+          },
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "install_date": {
+            "format": "date",
+            "title": "Install Date",
+            "type": "string"
+          },
+          "last_reading_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Reading At"
+          },
+          "latest_alarm": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Alarm"
+          },
+          "latest_alarm_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Alarm At"
+          },
+          "line": {
+            "title": "Line",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/MachineStatus"
+          },
+          "type": {
+            "$ref": "#/components/schemas/MachineType"
+          },
+          "worst_severity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AlarmSeverity"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "code",
+          "name",
+          "line",
+          "type",
+          "status",
+          "install_date"
+        ],
+        "title": "MachineTile",
+        "type": "object"
+      },
       "MachineType": {
         "enum": [
           "cnc_mill",
@@ -746,6 +843,29 @@
           "tokens_out"
         ],
         "title": "ModelStats",
+        "type": "object"
+      },
+      "PlantOverview": {
+        "description": "Everything the overview needs in ONE response: ten tiles, one request (not ten).",
+        "properties": {
+          "generated_at": {
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          },
+          "machines": {
+            "items": {
+              "$ref": "#/components/schemas/MachineTile"
+            },
+            "title": "Machines",
+            "type": "array"
+          }
+        },
+        "required": [
+          "machines",
+          "generated_at"
+        ],
+        "title": "PlantOverview",
         "type": "object"
       },
       "ReadingBucket": {
@@ -2087,6 +2207,28 @@
         "summary": "Get Readings",
         "tags": [
           "machines"
+        ]
+      }
+    },
+    "/plant/overview": {
+      "get": {
+        "description": "All machines by line with their ACTIVE alarms (count, worst severity, newest). The\ndashboard polls this every few seconds: one request for the whole plant.",
+        "operationId": "plantOverview",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlantOverview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Plant Overview",
+        "tags": [
+          "plant"
         ]
       }
     },
