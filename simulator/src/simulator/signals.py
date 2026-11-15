@@ -22,7 +22,7 @@ import numpy as np
 import numpy.typing as npt
 
 from app.db.models import MachineType, SensorKind
-from app.plant import MachineSpec, SensorSpec
+from app.plant import MachineSpec, SensorSpec, ShiftPattern
 from simulator.faults import (
     Fault,
     down_mask,
@@ -111,8 +111,14 @@ def _utc_offset_seconds(ts: int, tz: ZoneInfo) -> int:
     return int(offset.total_seconds()) if offset is not None else 0
 
 
-def shift_mask(epoch: IntArray, tz: ZoneInfo = PLANT_TZ) -> npt.NDArray[np.bool_]:
-    """True where local time is a production shift (Mon-Fri, 06:00-22:00)."""
+def shift_mask(
+    epoch: IntArray,
+    tz: ZoneInfo = PLANT_TZ,
+    shifts: ShiftPattern = ShiftPattern.TWO_SHIFT_WEEKDAYS,
+) -> npt.NDArray[np.bool_]:
+    """True where local time is a production shift (two shifts: Mon-Fri, 06:00-22:00)."""
+    if shifts is ShiftPattern.CONTINUOUS:
+        return np.ones(len(epoch), dtype=np.bool_)
     local = local_epoch(epoch, tz)
     weekday = (local // 86400 + 3) % 7  # 1970-01-01 was a Thursday; Monday = 0
     hour = local % 86400 // 3600
@@ -277,11 +283,11 @@ def machine_rng(seed: int, stream: str, block_start: int) -> np.random.Generator
 
 
 def _plan(
-    epoch: IntArray, machine: MachineSpec, seed: int
+    epoch: IntArray, machine: MachineSpec, seed: int, shifts: ShiftPattern
 ) -> tuple[npt.NDArray[np.bool_], IntArray, FloatArray]:
     """Shift mask, operating states and load for `epoch`, assembled from whole hour blocks."""
     profile = PROFILES[machine.type]
-    in_shift = shift_mask(epoch)
+    in_shift = shift_mask(epoch, shifts=shifts)
     states = np.empty(len(epoch), dtype=np.int64)
     load = np.empty(len(epoch))
     block_of = epoch // BLOCK_SECONDS
@@ -289,7 +295,7 @@ def _plan(
         block_start = int(block) * BLOCK_SECONDS
         block_epoch = np.arange(block_start, block_start + BLOCK_SECONDS, DT_SECONDS)
         rng = machine_rng(seed, machine.code, block_start)
-        block_shift = shift_mask(block_epoch)
+        block_shift = shift_mask(block_epoch, shifts=shifts)
         block_states = operating_states(block_shift, profile, rng)
         block_load = machine_load(block_shift, profile, rng)
         selected = block_of == block
@@ -307,6 +313,7 @@ def simulate_machine(
     seed: int,
     initial: Mapping[str, float] | None = None,
     faults: Sequence[Fault] = (),
+    shifts: ShiftPattern = ShiftPattern.TWO_SHIFT_WEEKDAYS,
 ) -> MachineSimulation:
     """Signals for every sensor of one machine over [start, end): healthy, plus `faults`.
 
@@ -319,7 +326,7 @@ def simulate_machine(
     for fault in faults:
         validate(fault, machine, sensors)
     epoch = time_grid(start, end)
-    _, states, load = _plan(epoch, machine, seed)
+    _, states, load = _plan(epoch, machine, seed, shifts)
     # A tripped machine stays stopped while the fault is active (nobody repaired it yet).
     for fault in faults:
         states[down_mask(fault, epoch)] = OpState.DOWN

@@ -8,10 +8,8 @@ setup:
   severity: 0.5
 question: The pressure differential on M-08 keeps rising. What could explain it?
 expect:
-  category: [machine_fault, unknown]
+  category: [machine_fault]
   root_cause_keywords: [[filter, strainer], [clog, block, dirty, restrict, foul]]
   must_cite: [MAN-CMP-001, SOP-CMP-005]
-  work_order: optional
+  work_order: required
 tags: [generated, mild]
-notes: 'Mild (severity 0.5): the signal may be too weak to decide, so ''unknown'' is an honest answer
-  here. A confident wrong diagnosis is still a failure.'

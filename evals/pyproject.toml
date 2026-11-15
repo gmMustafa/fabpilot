@@ -27,3 +27,6 @@ testpaths = ["tests"]
 addopts = "--strict-markers"
 # pytest-asyncio is installed workspace-wide; no async tests here, but say it (no warning)
 asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "integration: needs real services (Postgres via docker compose); deselect with -m 'not integration'",
+]

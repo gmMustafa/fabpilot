@@ -14,6 +14,7 @@ from simulator.alarms import AlarmEvent, detect_alarms
 from simulator.db import (
     SensorBatch,
     clear_faults,
+    delete_faults,
     faults_overlapping,
     last_readings,
     record_fault,
@@ -73,7 +74,14 @@ def write_window(
             if (machine.code, s.name) in initial
         }
         sim = simulate_machine(
-            machine, sensors, start, end, seed, initial=machine_initial, faults=faults
+            machine,
+            sensors,
+            start,
+            end,
+            seed,
+            initial=machine_initial,
+            faults=faults,
+            shifts=plant.shifts,
         )
         if len(sim.times) == 0:
             continue
@@ -155,6 +163,37 @@ def inject(
 def clear(conn: psycopg.Connection, machine_code: str, now: datetime | None = None) -> int:
     """The maintenance team fixed it: active faults end now, the machine goes back in service."""
     return clear_faults(conn, machine_code, floor_to_grid(now or datetime.now(UTC)))
+
+
+def reset_machine(
+    conn: psycopg.Connection,
+    plant: PlantConfig,
+    machine_code: str,
+    seed: int,
+    days: int,
+    now: datetime | None = None,
+) -> int:
+    """Eval isolation (8.3): forget every fault ever injected on this machine and regenerate its
+    history as if nothing had happened: the last `days` (from midnight, like backfill), and
+    further back if a deleted fault started earlier. Returns rows written.
+
+    Not `clear`: a repair ends a fault but keeps its history (the readings stay bad up to the
+    repair, as in a real plant), so the next scenario on this machine would find the previous
+    one's fault. DESTROYS ground truth: for the eval database only (agent_evals guards it).
+    """
+    if not any(m.code == machine_code for m in plant.machines):
+        raise ValueError(f"unknown machine {machine_code!r}")
+    current = floor_to_grid(now or datetime.now(UTC))
+    end = current + timedelta(seconds=DT_SECONDS)  # same end as inject: incl. the current point
+    start = current.replace(hour=0, minute=0, second=0) - timedelta(days=days)
+    with conn.transaction():
+        earliest = delete_faults(conn, machine_code)
+        # a 3-day fault reset with days=1 would otherwise keep 2 days of its bad readings
+        if earliest is not None and earliest < start:
+            start = floor_to_grid(earliest)
+        # status from the regenerated data: a machine tripped by the last scenario runs again
+        window = write_window(conn, plant, start, end, seed, machines=[machine_code])
+    return window.rows
 
 
 def backfill(

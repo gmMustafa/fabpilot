@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.config import get_settings
 from app.db.models import FaultType
-from app.plant import PlantConfig, load_plant
+from app.plant import PlantConfig, ShiftPattern, load_plant
 from app.seed import seed
 from app.testing import libpq_url, sqlalchemy_url
 from simulator import runner
@@ -27,7 +27,11 @@ SEED = 42
 
 @pytest.fixture
 def plant() -> PlantConfig:
-    return load_plant(get_settings().plant_file)
+    # These tests check the two-shift physics (machines OFF at night); the demo plant.yaml may
+    # run continuous, so pin the pattern here.
+    return load_plant(get_settings().plant_file).model_copy(
+        update={"shifts": ShiftPattern.TWO_SHIFT_WEEKDAYS}
+    )
 
 
 @pytest.fixture
@@ -251,3 +255,71 @@ def test_clear_repairs_the_machine(conn: psycopg.Connection, plant: PlantConfig)
         "running",
     )
     assert _count(conn, "SELECT count(*) FROM sim.fault_injections WHERE cleared_at IS NULL") == 0
+
+
+def _m01_vibration_max(conn: psycopg.Connection) -> float:
+    return _scalar(
+        conn,
+        "SELECT max(r.value) FROM sensor_readings r JOIN sensors s ON s.id = r.sensor_id"
+        " JOIN machines m ON m.id = s.machine_id"
+        " WHERE m.code = 'M-01' AND s.name = 'spindle_vibration'",
+    )
+
+
+def test_reset_machine_erases_a_fault_and_its_history(
+    conn: psycopg.Connection, plant: PlantConfig
+) -> None:
+    """Eval isolation (8.3a): after a reset the next scenario must not find the last one."""
+    backfill(conn, plant, days=1, seed=SEED, now=NOW)
+    healthy = _m01_vibration_max(conn)
+    inject(conn, plant, FaultType.BEARING_WEAR, "M-01", seed=SEED, now=NOW)
+    inject(conn, plant, FaultType.SENSOR_DRIFT, "M-08", seed=SEED, sensor="discharge_temp", now=NOW)
+    assert _m01_vibration_max(conn) > 2 * healthy
+
+    runner.reset_machine(conn, plant, "M-01", seed=SEED, days=1, now=NOW)
+
+    faults = conn.execute(
+        "SELECT m.code FROM sim.fault_injections f JOIN machines m ON m.id = f.machine_id"
+    ).fetchall()
+    assert faults == [("M-08",)]  # only that machine's ground truth is gone
+    # its history is healthy again: clear() would have kept the bad readings
+    assert _m01_vibration_max(conn) == pytest.approx(healthy, rel=0.25)
+    vib_alarms = _count(
+        conn,
+        "SELECT count(*) FROM alarms a JOIN machines m ON m.id = a.machine_id"
+        " WHERE m.code = 'M-01' AND a.code = 'VIB-HIGH'",
+    )
+    assert vib_alarms == 0
+
+
+def test_reset_machine_brings_a_tripped_machine_back(
+    conn: psycopg.Connection, plant: PlantConfig
+) -> None:
+    backfill(conn, plant, days=1, seed=SEED, now=NOW)
+    assert inject(conn, plant, FaultType.COOLANT_PUMP_FAILURE, "M-01", seed=SEED, now=NOW).tripped
+    runner.reset_machine(conn, plant, "M-01", seed=SEED, days=1, now=NOW)
+    # mid-shift on a Tuesday: running (the schedule), not 'down' (update_status never undoes that)
+    assert conn.execute("SELECT status FROM machines WHERE code = 'M-01'").fetchone() == (
+        "running",
+    )
+    assert _count(conn, "SELECT count(*) FROM alarms WHERE code = 'TRIP'") == 0
+
+
+def test_reset_machine_rejects_an_unknown_machine(
+    conn: psycopg.Connection, plant: PlantConfig
+) -> None:
+    with pytest.raises(ValueError, match="unknown machine"):
+        runner.reset_machine(conn, plant, "M-99", seed=SEED, days=1, now=NOW)
+
+
+def test_reset_rewrites_back_to_the_earliest_fault_start(
+    conn: psycopg.Connection, plant: PlantConfig
+) -> None:
+    """A 3-day fault reset with days=1: the 2 older days must be healthy again too. Found with a
+    24/7 plant, where those days ran (in two shifts they were a weekend, so the gap hid)."""
+    continuous = plant.model_copy(update={"shifts": ShiftPattern.CONTINUOUS})
+    backfill(conn, continuous, days=3, seed=SEED, now=NOW)
+    healthy = _m01_vibration_max(conn)
+    inject(conn, continuous, FaultType.BEARING_WEAR, "M-01", seed=SEED, now=NOW)  # 3 days
+    runner.reset_machine(conn, continuous, "M-01", seed=SEED, days=1, now=NOW)
+    assert _m01_vibration_max(conn) == pytest.approx(healthy, rel=0.25)

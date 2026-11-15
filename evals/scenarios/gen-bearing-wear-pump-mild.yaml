@@ -8,10 +8,8 @@ setup:
   severity: 0.5
 question: Vibration on M-09 keeps creeping up. Is it time to plan a repair?
 expect:
-  category: [machine_fault, unknown]
+  category: [machine_fault]
   root_cause_keywords: [[bearing], [wear, worn, degrad, damage, spall, defect]]
   must_cite: [MAN-PMP-001, SOP-PMP-009]
-  work_order: optional
+  work_order: required
 tags: [generated, mild]
-notes: 'Mild (severity 0.5): the signal may be too weak to decide, so ''unknown'' is an honest answer
-  here. A confident wrong diagnosis is still a failure.'

@@ -1,6 +1,7 @@
 """Plant configuration (data/plant.yaml): parsed and validated before anything touches the DB."""
 
 from datetime import date
+from enum import StrEnum
 from pathlib import Path
 from typing import Self
 
@@ -8,6 +9,13 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.db.models import MachineType, SensorKind
+
+
+class ShiftPattern(StrEnum):
+    """When production machines run (utilities like the compressor run 24/7 either way)."""
+
+    TWO_SHIFT_WEEKDAYS = "two_shift_weekdays"  # Mon-Fri 06-22 local: idle nights + weekends
+    CONTINUOUS = "continuous"  # 24/7, three shifts (fabs, many automotive suppliers)
 
 
 class _Strict(BaseModel):
@@ -39,6 +47,9 @@ class MachineSpec(_Strict):
 
 
 class PlantConfig(_Strict):
+    # Default: the realistic two-shift plant. The demo plant.yaml sets `continuous`, so a fault
+    # on a production machine can be shown on any day (a stopped belt can't slip on a Sunday).
+    shifts: ShiftPattern = ShiftPattern.TWO_SHIFT_WEEKDAYS
     sensor_templates: dict[MachineType, list[SensorSpec]]
     machines: list[MachineSpec]
 

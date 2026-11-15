@@ -45,6 +45,10 @@ class FaultKnowledge:
     keywords: list[list[str]]
     cite: dict[MachineType, list[str]]  # must_cite per machine type: the manual + the repair SOP
     questions: list[str]  # templates with {machine}; rotated over the variants
+    # Machine types where the MILD variant really leaves a weak signal (no alarm in the 8.3a
+    # dry run): only there 'unknown' is an honest answer. Elsewhere mild still alarms (bearing
+    # wear: VIB-CRIT) or trips (a coolant pump pumps or it doesn't), so hedging would be wrong.
+    weak_mild: frozenset[MachineType] = frozenset()
 
 
 FAULT_KNOWLEDGE: dict[FaultType, FaultKnowledge] = {
@@ -92,6 +96,7 @@ FAULT_KNOWLEDGE: dict[FaultType, FaultKnowledge] = {
             "{machine} slowed down several times this shift. Why?",
             "{machine} stopped. Can we just reset it and carry on?",
         ],
+        weak_mild=frozenset({MachineType.INJECTION_MOLDER}),  # the CNC mild still alarms
     ),
     FaultType.BELT_SLIPPAGE: FaultKnowledge(
         keywords=[["belt"], ["slip"]],
@@ -102,6 +107,7 @@ FAULT_KNOWLEDGE: dict[FaultType, FaultKnowledge] = {
             "fluctuates. Why?",
             "Could a faulty speed sensor explain the irregular movement on {machine}?",
         ],
+        weak_mild=frozenset({MachineType.CONVEYOR}),
     ),
 }
 
@@ -138,20 +144,20 @@ CONTROL_QUESTIONS = [
 class Variant:
     name: str  # typical | mild | advanced (also its tag)
     severity: float
-    allow_unknown: bool
+    may_be_weak: bool  # 'unknown' accepted if the fault's weak_mild says so
 
 
 # Severity, not duration: a scenario's fault is fully developed when the question is asked
 # (start = now - duration), so what varies is how strong it got. Note motor_overload: at
 # severity >= 1.0 the overload relay trips (the machine is DOWN), below it only struggles.
 VARIANTS = [
-    Variant("typical", 1.0, allow_unknown=False),
-    Variant("mild", 0.5, allow_unknown=True),
-    Variant("advanced", 1.5, allow_unknown=False),
+    Variant("typical", 1.0, may_be_weak=False),
+    Variant("mild", 0.5, may_be_weak=True),
+    Variant("advanced", 1.5, may_be_weak=False),
 ]
 MILD_NOTES = (
-    "Mild (severity 0.5): the signal may be too weak to decide, so 'unknown' is an honest "
-    "answer here. A confident wrong diagnosis is still a failure."
+    "Mild (severity 0.5) and weak: no alarm in the dry run, only the readings show it, so "
+    "'unknown' is an honest answer here. A confident wrong diagnosis is still a failure."
 )
 
 
@@ -180,7 +186,8 @@ def _fault_scenarios(plant: PlantConfig) -> list[dict[str, Any]]:
                 tags = ["generated", v.name]
                 if j == 0 and v.name == "typical":
                     tags.insert(0, "smoke")  # one per fault family
-                category = ["machine_fault", "unknown"] if v.allow_unknown else ["machine_fault"]
+                allow_unknown = v.may_be_weak and mtype in know.weak_mild
+                category = ["machine_fault", "unknown"] if allow_unknown else ["machine_fault"]
                 scenario: dict[str, Any] = {
                     "id": _id(fault, mtype, v.name),
                     "description": f"{fault} on a {mtype} ({machine}), {v.name} "
@@ -191,11 +198,11 @@ def _fault_scenarios(plant: PlantConfig) -> list[dict[str, Any]]:
                         "category": category,
                         "root_cause_keywords": know.keywords,
                         "must_cite": know.cite[mtype],
-                        "work_order": "optional" if v.allow_unknown else "required",
+                        "work_order": "optional" if allow_unknown else "required",
                     },
                     "tags": tags,
                 }
-                if v.allow_unknown:
+                if allow_unknown:
                     scenario["notes"] = MILD_NOTES
                 out.append(scenario)
     return out

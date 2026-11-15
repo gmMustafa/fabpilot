@@ -215,3 +215,24 @@ def clear_faults(conn: psycopg.Connection, machine_code: str, at: datetime) -> i
             (machine_code,),
         )
     return cur.rowcount
+
+
+def delete_faults(conn: psycopg.Connection, machine_code: str) -> datetime | None:
+    """Eval isolation only (runner.reset_machine): REMOVE the machine's injected faults, as if
+    they had never happened, and put a tripped machine back in service. Returns the earliest
+    start among them (None: there were none): the history from there on must be rewritten.
+
+    Unlike clear_faults (a repair, history kept), this erases ground truth.
+    """
+    with conn.transaction():
+        starts = conn.execute(
+            "DELETE FROM sim.fault_injections f USING machines m"
+            " WHERE m.id = f.machine_id AND m.code = %s RETURNING f.start",
+            (machine_code,),
+        ).fetchall()
+        # update_status never overrides 'down' (a schedule doesn't repair a machine): do it here
+        conn.execute(
+            "UPDATE machines SET status = 'running' WHERE code = %s AND status = 'down'",
+            (machine_code,),
+        )
+    return min((row[0] for row in starts), default=None)

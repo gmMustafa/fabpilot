@@ -13,5 +13,5 @@ expect:
   must_cite: [MAN-IMM-001, SOP-GEN-007]
   work_order: optional
 tags: [generated, mild]
-notes: 'Mild (severity 0.5): the signal may be too weak to decide, so ''unknown'' is an honest answer
-  here. A confident wrong diagnosis is still a failure.'
+notes: 'Mild (severity 0.5) and weak: no alarm in the dry run, only the readings show it, so ''unknown''
+  is an honest answer here. A confident wrong diagnosis is still a failure.'

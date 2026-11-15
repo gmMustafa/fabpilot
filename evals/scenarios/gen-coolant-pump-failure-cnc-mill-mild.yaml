@@ -8,10 +8,8 @@ setup:
   severity: 0.5
 question: Temperature and pressure alarms on M-02 within minutes. Why?
 expect:
-  category: [machine_fault, unknown]
+  category: [machine_fault]
   root_cause_keywords: [[coolant], [pump, flow, pressure]]
   must_cite: [MAN-CNC-001, SOP-CNC-003]
-  work_order: optional
+  work_order: required
 tags: [generated, mild]
-notes: 'Mild (severity 0.5): the signal may be too weak to decide, so ''unknown'' is an honest answer
-  here. A confident wrong diagnosis is still a failure.'

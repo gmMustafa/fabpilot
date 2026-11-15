@@ -11,6 +11,13 @@
 #   - Motor currents from P ≈ √3·U·I·cosφ at 400 V, cosφ ≈ 0.85 (est.).
 #   - Temperatures: rolling bearings typically run 40–70 °C; alarm ~80–90 °C (est.).
 
+# When production machines run: two_shift_weekdays (Mon-Fri 06-22, idle nights and weekends) or
+# continuous (24/7, three shifts, as in semiconductor fabs and many automotive suppliers). The
+# demo runs continuous, so a fault can be shown on any day: a stopped belt can't slip. Utilities
+# (compressor, central pump) run 24/7 either way. The evals pin their own pattern (evaldb.py).
+# After changing it, rewrite the history: uv run simulator backfill --days 7
+shifts: continuous
+
 # Sensors are defined once per machine TYPE: identical machines (M-01..M-03) carry identical sensors.
 sensor_templates:
   cnc_mill: # 5-axis vertical machining center, ~22 kW spindle
