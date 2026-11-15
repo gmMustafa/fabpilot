@@ -37,7 +37,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             pooled_checkpointer(str(settings.database_url), settings.db_connect_timeout)
         )
         llm = build_gateway(settings, engine=engine)
-        stack.push_async_callback(llm.provider.aclose)
+        stack.push_async_callback(llm.aclose)
         app.state.agent = AgentService(
             SqlAgentRepo(engine),
             llm,

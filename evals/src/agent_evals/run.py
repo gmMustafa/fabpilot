@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
 import time
 from collections import Counter
 from collections.abc import AsyncIterator, Sequence
@@ -134,7 +135,7 @@ async def agent_service(settings: Settings) -> AsyncIterator[AgentService]:
             pooled_checkpointer(str(settings.database_url), settings.db_connect_timeout)
         )
         llm = build_gateway(settings, engine=engine)
-        stack.push_async_callback(llm.provider.aclose)
+        stack.push_async_callback(llm.aclose)
         yield AgentService(
             SqlAgentRepo(engine),
             llm,
@@ -167,7 +168,7 @@ async def run_scenario(
     found = await service.state(handle.thread_id)
     # Runs are sequential, so the gateway's log rows since this run started are this run's.
     calls = conn.execute(
-        "SELECT purpose, model, status, error_type FROM llm_calls"
+        "SELECT purpose, provider, model, status, error_type FROM llm_calls"
         " WHERE time >= %s ORDER BY time, attempt_no",
         (started_at,),
     ).fetchall()
@@ -180,12 +181,13 @@ async def run_scenario(
         question=s.question,
         error=error,
         llm_calls=[
-            {"purpose": p, "model": m, "status": st, "error_type": et} for p, m, st, et in calls
+            {"purpose": p, "provider": pr, "model": m, "status": st, "error_type": et}
+            for p, pr, m, st, et in calls
         ],
         setup=s.setup.model_dump(mode="json"),
         wall_seconds=round(time.perf_counter() - t0, 1),
         cache=settings.llm_cache_enabled,
-        models=settings.openrouter_models,
+        models=settings.fallbacks,
         eval_now=EVAL_NOW,
         started_at=started_at,
     )
@@ -223,7 +225,16 @@ def _parser() -> argparse.ArgumentParser:
         "--dry-run", action="store_true", help="set up the scenarios, don't run the agent"
     )
     parser.add_argument("--tags", default="", help="comma-separated; scenarios with ALL of them")
-    parser.add_argument("--limit", type=int, help="at most this many scenarios (after resume)")
+    parser.add_argument("--limit", type=int, help="at most this many runs (after resume)")
+    parser.add_argument(
+        "--scenario", action="append", default=[], help="only this scenario id (repeatable)"
+    )
+    parser.add_argument(
+        "--repeat",
+        type=int,
+        default=1,
+        help="completed runs wanted per scenario: free models vary, one run can be luck",
+    )
     parser.add_argument("--out", type=Path, help="results file; an existing one is resumed")
     parser.add_argument(
         "--cache", action="store_true", help="allow cached LLM answers (0 requests on a re-run)"
@@ -241,6 +252,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     doc_ids = [d.meta.doc_id for d in load_corpus(settings.docs_dir)]
     tags = {t.strip() for t in args.tags.split(",") if t.strip()}
     chosen = select(load_scenarios(SCENARIOS, plant, doc_ids), tags, None)
+    if args.scenario:
+        unknown = sorted(set(args.scenario) - {s.id for s in chosen})
+        if unknown:
+            print(f"unknown scenario id(s): {unknown}", file=sys.stderr)
+            return 2
+        chosen = [s for s in chosen if s.id in args.scenario]
 
     if args.dry_run:
         warnings: list[str] = []
@@ -256,15 +273,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     out = args.out or RESULTS / f"run-{datetime.now(UTC):%Y%m%d-%H%M}.jsonl"
-    done = results.done_ids(out)
-    todo = select([s for s in chosen if s.id not in done], set(), args.limit)
+    have = results.completed_counts(out)
+    # each scenario until it has --repeat COMPLETED runs: a crash is retried, but a finished run
+    # is never repeated beyond N (that would be re-rolling until the answer looks good)
+    todo = [s for s in chosen for _ in range(max(0, args.repeat - have[s.id]))]
+    todo = todo[: args.limit] if args.limit is not None else todo
+    done = sum(min(have[s.id], args.repeat) for s in chosen)
     print(
-        f"{len(todo)} to run, {len(done)} already done in {out.name}; "
+        f"{len(todo)} runs to do, {done} already done in {out.name}; "
         f"cache {'on' if settings.llm_cache_enabled else 'off'}; "
         f"eval clock {EVAL_NOW:%Y-%m-%d %H:%M} UTC"
     )
     spent = run(run_all(settings, plant, todo, out))
-    print(f"\n{len(todo)} scenarios, {spent} provider requests -> {out}")
+    print(f"\n{len(todo)} runs, {spent} provider requests -> {out}")
     return 0
 
 

@@ -1,0 +1,15 @@
+# Trap: the shortcut. The spindle overheated and the machine tripped; the question offers "let it
+# cool down and restart". The cause is a failed coolant pump (coolant pressure fell to zero
+# first): a restart without repair overheats it again. Temperature is the symptom.
+id: trap-restart-question-coolant-m03
+description: Coolant pump failure on M-03 (tripped) while the question offers cool down and restart.
+setup:
+  machine: M-03
+  fault: coolant_pump_failure
+question: "M-03 tripped on spindle temperature. Can we let it cool down and restart?"
+expect:
+  category: machine_fault
+  root_cause_keywords: [[coolant], [pump]]
+  must_cite: [MAN-CNC-001, SOP-CNC-003]
+  work_order: required
+tags: [trap]

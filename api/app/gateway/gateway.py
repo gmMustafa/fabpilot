@@ -1,11 +1,12 @@
 """The LLM gateway: one place that decides retry vs. fallback vs. give up.
 
-for model in fallback list:
-    call model
+for route in fallback list (a route = provider:model[@effort], C1):
+    call it
       success          -> return
       RETRY_SAME       -> back off (exponential + jitter, or Retry-After), call again
-      NEXT_MODEL       -> try the next model in the list
-      FAIL             -> raise immediately (every model would fail the same way)
+      NEXT_MODEL       -> try the next route in the list
+      NEXT_PROVIDER    -> this PROVIDER is out (daily quota, bad key): skip all its routes
+      FAIL             -> raise immediately (every route would fail the same way)
 ...all bounded by a TOTAL attempt budget and a wall-clock deadline: free-tier requests are
 scarce (~50/day), so one question must never fan out into 3 models x 3 retries = 9 calls.
 """
@@ -15,13 +16,14 @@ import logging
 import random
 import time
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from enum import StrEnum
 
 from app.gateway.cache import CachedAnswer, CachePolicy, PromptCache, cache_key, is_cacheable
 from app.gateway.hashing import prompt_hash
+from app.gateway.routes import Route, next_index, parse_route
 from app.gateway.types import (
     AllModelsFailedError,
     Attempt,
@@ -48,6 +50,9 @@ logger = logging.getLogger(__name__)
 class Action(StrEnum):
     RETRY_SAME = "retry_same"  # transient: wait, then call the same model again
     NEXT_MODEL = "next_model"  # this model is out for now: move down the fallback list
+    # this provider is out (its daily quota, its key): skip ALL its routes, other providers may
+    # still answer. With one provider that ends the call, with the provider's own error.
+    NEXT_PROVIDER = "next_provider"
     FAIL = "fail"  # our side / account-wide: stop, don't waste quota
 
 
@@ -68,7 +73,9 @@ def classify(error: ProviderError, max_delay: float) -> Action:
     - OutputTruncatedError (a BadRequestError, so checked FIRST):
         max_tokens >= TRUNCATION_FALLBACK_MIN (this model over-thinks) -> NEXT_MODEL
         smaller or unknown budget (our misconfiguration)             -> FAIL
-    - QuotaExhaustedError, BadRequestError, AuthError             -> FAIL
+    - QuotaExhaustedError, AuthError                             -> NEXT_PROVIDER
+      (account-wide for THIS provider: its other models fail the same way, others may not)
+    - BadRequestError                                             -> FAIL
     - anything else (an unknown ProviderError subclass)           -> FAIL
       (fail closed: when unsure, don't burn quota on blind retries)
     """
@@ -95,14 +102,10 @@ def classify(error: ProviderError, max_delay: float) -> Action:
         generous = error.max_tokens is not None and error.max_tokens >= TRUNCATION_FALLBACK_MIN
         return Action.NEXT_MODEL if generous else Action.FAIL
 
-    if isinstance(
-        error,
-        (
-            QuotaExhaustedError,
-            BadRequestError,
-            AuthError,
-        ),
-    ):
+    if isinstance(error, (QuotaExhaustedError, AuthError)):
+        return Action.NEXT_PROVIDER
+
+    if isinstance(error, BadRequestError):
         return Action.FAIL
 
     # Unknown errors: fail closed.
@@ -130,7 +133,9 @@ def backoff_delay(
 
 @dataclass(frozen=True)
 class GatewayConfig:
-    models: list[str]  # fallback order, best first (OPENROUTER_MODELS)
+    models: list[
+        str
+    ]  # fallback order, best first: routes "provider:model[@effort]" (LLM_FALLBACKS)
     max_retries_per_model: int = 2  # RETRY_SAME at most this often per model
     max_attempts: int = 4  # total requests per chat() call, across all models
     base_delay: float = 1.0
@@ -141,7 +146,7 @@ class GatewayConfig:
 class LLMGateway:
     def __init__(
         self,
-        provider: LLMProvider,
+        provider: LLMProvider | Mapping[str, LLMProvider],
         config: GatewayConfig,
         *,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
@@ -152,8 +157,20 @@ class LLMGateway:
         cache_ttl: timedelta = timedelta(hours=168),
     ) -> None:
         if not config.models:
-            raise ValueError("GatewayConfig.models is empty: set OPENROUTER_MODELS")
-        self.provider = provider
+            raise ValueError(
+                "GatewayConfig.models is empty: set LLM_FALLBACKS (or OPENROUTER_MODELS)"
+            )
+        # One provider (most tests, the old setup) or several by name. The first one named is the
+        # default: an entry without a provider prefix belongs to it.
+        self.providers: dict[str, LLMProvider] = (
+            dict(provider) if isinstance(provider, Mapping) else {provider.name: provider}
+        )
+        if not self.providers:
+            raise ValueError("no LLM provider configured")
+        self.default_provider = next(iter(self.providers))
+        self.routes: list[Route] = [
+            parse_route(m, self.default_provider, self.providers) for m in config.models
+        ]
         self.config = config
         self._recorder = recorder
         self._cache, self._cache_ttl = cache, cache_ttl
@@ -213,9 +230,14 @@ class LLMGateway:
         finally:
             if self._recorder is not None:
                 record = CallRecord(
-                    call_id, purpose, self.provider.name, digest, attempts, cached=cached
+                    call_id, purpose, self.default_provider, digest, attempts, cached=cached
                 )
                 await self._record(record)
+
+    async def aclose(self) -> None:
+        """Close every provider's HTTP client."""
+        for p in self.providers.values():
+            await p.aclose()
 
     async def _cache_get(self, key: str) -> CachedAnswer | None:
         """Best effort: a broken cache is a MISS (logged), never the reason a call fails."""
@@ -254,8 +276,14 @@ class LLMGateway:
     ) -> LLMResponse:
         cfg = self.config
         started = self._clock()
+        dead: set[str] = set()  # providers that can't answer at all any more in this call
+        index: int | None = 0
 
-        for model in cfg.models:
+        while index is not None:
+            route = self.routes[index]
+            provider = self.providers[route.provider]
+            # only when the route sets one: fakes and providers without the option still work
+            effort = {"reasoning_effort": route.effort} if route.effort else {}
             retries = 0
             while True:
                 if len(attempts) >= cfg.max_attempts:
@@ -265,17 +293,22 @@ class LLMGateway:
 
                 t0 = self._clock()
                 try:
-                    result = await self.provider.complete(
-                        model, messages, max_tokens=max_tokens, temperature=temperature
+                    result = await provider.complete(
+                        route.model,
+                        messages,
+                        max_tokens=max_tokens,
+                        temperature=temperature,
+                        **effort,
                     )
                 except ProviderError as error:
                     attempts.append(
                         Attempt(
-                            model,
+                            route.model,
                             _ms(self._clock() - t0),
                             error=_describe(error),
                             error_type=type(error).__name__,
                             http_status=error.status,
+                            provider=route.provider,
                         )
                     )
                     action = classify(error, cfg.max_delay)
@@ -286,12 +319,22 @@ class LLMGateway:
                         decision = f"{action} limit reached ({retries} retries) -> next_model"
                     else:
                         decision = str(action)
-                    logger.warning("LLM %s failed (%s) -> %s", model, _describe(error), decision)
+                    logger.warning("LLM %s failed (%s) -> %s", route, _describe(error), decision)
                     if action is Action.FAIL:
                         error.attempts = list(attempts)  # billable, like AllModelsFailedError
                         raise
+                    if action is Action.NEXT_PROVIDER:
+                        dead.add(route.provider)
+                        index = next_index(self.routes, index, dead)
+                        if index is None:
+                            # nobody else can answer: raise THIS error, so callers still see
+                            # "the daily quota is gone" and not a vague "all models failed"
+                            error.attempts = list(attempts)
+                            raise
+                        break
                     if action is Action.NEXT_MODEL or retries >= cfg.max_retries_per_model:
-                        break  # next model in the list
+                        index = next_index(self.routes, index, dead)
+                        break
                     retries += 1
                     delay = backoff_delay(
                         retries, error.retry_after, cfg.base_delay, cfg.max_delay, self._rng
@@ -303,17 +346,19 @@ class LLMGateway:
 
                 attempts.append(
                     Attempt(
-                        model,
+                        route.model,
                         _ms(self._clock() - t0),
                         tokens_in=result.tokens_in,
                         tokens_out=result.tokens_out,
                         reasoning_tokens=result.reasoning_tokens,
                         finish_reason=result.finish_reason,
+                        provider=route.provider,
                     )
                 )
                 return LLMResponse(
                     text=result.text,
                     model=result.model,
+                    provider=route.provider,
                     tokens_in=result.tokens_in,
                     tokens_out=result.tokens_out,
                     latency_ms=_ms(self._clock() - started),

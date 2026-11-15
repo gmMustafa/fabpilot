@@ -315,8 +315,8 @@ def record_calibration(
 
 def judge_settings(settings: Settings) -> Settings:
     """The judge's own model list (falls back to the agent's: the report warns about it)."""
-    models = settings.judge_models or settings.openrouter_models
-    return settings.model_copy(update={"openrouter_models": models})
+    models = settings.judge_models or settings.fallbacks
+    return settings.model_copy(update={"llm_fallbacks": models})
 
 
 async def _with_gateway(settings: Settings, job: str, args: argparse.Namespace) -> None:
@@ -324,7 +324,7 @@ async def _with_gateway(settings: Settings, job: str, args: argparse.Namespace) 
         engine = create_engine(settings)  # the eval DB: judge calls are logged there (cost)
         stack.push_async_callback(engine.dispose)
         gateway = build_gateway(judge_settings(settings), engine=engine)
-        stack.push_async_callback(gateway.provider.aclose)
+        stack.push_async_callback(gateway.aclose)
         if job == "calibrate":
             judged = await calibrate(gateway, load_cases())
             rate, confusion = agreement([(c.human, v) for c, v, _ in judged])

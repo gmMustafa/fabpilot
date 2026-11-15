@@ -80,7 +80,12 @@ class OpenRouterProvider:
         *,
         max_tokens: int,
         temperature: float,
+        reasoning_effort: str | None = None,
     ) -> Completion:
+        # A route's own effort (C1, "model@none") overrides the configured default.
+        extra_body = (
+            {"reasoning": {"effort": reasoning_effort}} if reasoning_effort else self._extra_body
+        )
         try:
             response = await self._client.chat.completions.create(
                 model=model,
@@ -90,7 +95,7 @@ class OpenRouterProvider:
                 ),
                 max_tokens=max_tokens,
                 temperature=temperature,
-                extra_body=self._extra_body,
+                extra_body=extra_body,
             )
         except openai.APITimeoutError as e:  # subclass of APIConnectionError: check it first
             raise LLMTimeoutError(str(e), model=model) from e
@@ -98,9 +103,9 @@ class OpenRouterProvider:
             raise ConnectionFailedError(str(e), model=model) from e
         except openai.APIStatusError as e:
             raise map_status_error(
-                e.status_code, _as_dict(e.body), e.response.headers, model, self._clock()
+                e.status_code, as_dict(e.body), e.response.headers, model, self._clock()
             ) from e
-        return _completion_or_raise(response, model, self._clock(), max_tokens)
+        return completion_or_raise(response, model, self._clock(), max_tokens)
 
     async def aclose(self) -> None:
         await self._client.close()
@@ -120,7 +125,7 @@ def map_status_error(
     message = str(body.get("message") or f"HTTP {status}")
     metadata = body.get("metadata") or {}
     error_type = metadata.get("error_type") if isinstance(metadata, Mapping) else None
-    retry_after = _retry_after(headers)
+    retry_after = retry_after_seconds(headers)
     kw: dict[str, Any] = {"model": model, "status": status, "retry_after": retry_after}
 
     match status:
@@ -160,7 +165,7 @@ def map_status_error(
             return ProviderError(message, **kw)  # unknown -> gateway fails closed
 
 
-def _completion_or_raise(
+def completion_or_raise(
     response: ChatCompletion, model: str, now: float, max_tokens: int
 ) -> Completion:
     """A 200 isn't always a success on OpenRouter: check for an embedded error first."""
@@ -171,7 +176,7 @@ def _completion_or_raise(
     # doesn't validate responses, so it does occur at runtime. Compare as a plain string.
     failed = choice is None or str(choice.finish_reason) == "error"
     if embedded is not None or failed:
-        err = _as_dict(embedded) or {"message": "empty response (no choices)"}
+        err = as_dict(embedded) or {"message": "empty response (no choices)"}
         raise map_status_error(int(err.get("code") or 502), err, {}, model, now)
     assert choice is not None
     usage = response.usage
@@ -199,11 +204,11 @@ def _completion_or_raise(
     )
 
 
-def _as_dict(value: object) -> dict[str, Any]:
+def as_dict(value: object) -> dict[str, Any]:
     return dict(value) if isinstance(value, Mapping) else {}
 
 
-def _retry_after(headers: Mapping[str, str]) -> float | None:
+def retry_after_seconds(headers: Mapping[str, str]) -> float | None:
     """Retry-After in seconds. (The HTTP-date form isn't used by OpenRouter; ignored if seen.)"""
     raw = headers.get("retry-after")
     try:

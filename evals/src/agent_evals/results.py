@@ -7,6 +7,7 @@ stops (the daily quota, Ctrl+C) loses nothing; running again with the same file 
 
 from __future__ import annotations
 
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -130,3 +131,8 @@ def latest(results: list[Result]) -> dict[str, Result]:
 def done_ids(path: Path) -> set[str]:
     """Scenarios to SKIP on resume: those whose newest result is completed."""
     return {sid for sid, r in latest(read(path)).items() if r.completed}
+
+
+def completed_counts(path: Path) -> Counter[str]:
+    """scenario_id -> how many COMPLETED runs the file holds (for --repeat: run until N)."""
+    return Counter(r.scenario_id for r in read(path) if r.completed)

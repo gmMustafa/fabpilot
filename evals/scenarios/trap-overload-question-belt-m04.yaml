@@ -1,0 +1,15 @@
+# Trap: the question suggests overload. Both slippage and overload lower the roller speed; the
+# CURRENT tells them apart (MAN-CNV-001 §5.2, §6): slippage LOWERS it, overload raises it. Here
+# the current drops with the speed, so reducing the load (the question's fix) would not help.
+id: trap-overload-question-belt-m04
+description: Belt slippage on M-04 while the question suggests an overloaded conveyor.
+setup:
+  machine: M-04
+  fault: belt_slippage
+question: "M-04 keeps slowing down. Is the conveyor overloaded? Should we reduce the load?"
+expect:
+  category: machine_fault
+  root_cause_keywords: [[belt], [slip]]
+  must_cite: [MAN-CNV-001, SOP-CNV-008]
+  work_order: required
+tags: [trap]

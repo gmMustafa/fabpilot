@@ -21,7 +21,8 @@ class DbCallRecorder:
                 "call_id": call.call_id,
                 "attempt_no": n,
                 "purpose": call.purpose,
-                "provider": call.provider,
+                # per ATTEMPT (C1): one call can fall back from Groq to OpenRouter
+                "provider": a.provider or call.provider,
                 "model": a.model,
                 "status": LlmCallStatus.OK if a.ok else LlmCallStatus.ERROR,
                 "error_type": a.error_type,

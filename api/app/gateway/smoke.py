@@ -32,7 +32,7 @@ async def _main(question: str) -> int:
         print(f"FAILED: {type(e).__name__}: {e}")
         return 1
     finally:
-        await gateway.provider.aclose()
+        await gateway.aclose()
         await engine.dispose()
     print(r.text.strip())
     print(

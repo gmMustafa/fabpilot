@@ -60,7 +60,10 @@ def _cost(rs: list[results.Result]) -> list[str]:
     walls = sorted(r.wall_seconds for r in rs)
     p95 = walls[min(len(walls) - 1, int(0.95 * len(walls)))] if walls else 0.0
     attempts: Counter[tuple[str, str]] = Counter(
-        (c["model"], c["status"]) for r in rs for c in r.llm_calls
+        # provider:model, since one model id can be served by two providers (C: routes)
+        (f"{c['provider']}:{c['model']}" if c.get("provider") else c["model"], c["status"])
+        for r in rs
+        for c in r.llm_calls
     )
     models = sorted({m for m, _ in attempts})
     lines = [
@@ -127,14 +130,56 @@ def _judge_section(
     return out
 
 
+def diagnosed_by(r: results.Result) -> str:
+    """The model that gave the FINAL hypothesis: the last successful agent.hypothesize attempt
+    ("?" for results recorded before 8.3c). With fallback across routes, two runs of the same
+    scenario can be answered by different models: a verdict without its model invites
+    comparing a model with another one."""
+    oks = [c for c in r.llm_calls if c["purpose"] == "agent.hypothesize" and c["status"] == "ok"]
+    if not oks:
+        return "?"
+    c = oks[-1]
+    model = str(c["model"]).split("/")[-1]  # "nvidia/nemotron-3.5-super-vl:free" -> short
+    return f"{c['provider']}:{model}" if c.get("provider") else model
+
+
+def _repeats(every: list[results.Result], scenarios: dict[str, Scenario]) -> list[str]:
+    """Every completed verdict of a scenario run more than once, WITH the model that gave it.
+    The headline shows only the newest result, and with free models one run can be luck
+    either way: this shows the spread."""
+    runs: dict[str, list[tuple[str, str]]] = {}
+    for r in every:
+        if r.completed and r.scenario_id in scenarios:
+            v = grade(r, scenarios[r.scenario_id]).verdict or "errored"
+            runs.setdefault(r.scenario_id, []).append((v, diagnosed_by(r)))
+    repeated = {sid: vs for sid, vs in runs.items() if len(vs) > 1}
+    if not repeated:
+        return []
+    lines = ["", "## Repeats (every completed run, oldest first)", ""]
+    lines += ["| scenario | verdicts (model) | correct |", "|---|---|---|"]
+    for sid, vs in sorted(repeated.items()):
+        shown = ", ".join(f"{v} ({m})" for v, m in vs)
+        right = sum(v == "correct" for v, _ in vs)
+        lines.append(f"| {sid} | {shown} | {pct(right, len(vs))} |")
+    if any(len({m for _, m in vs}) > 1 for vs in repeated.values()):
+        lines += [
+            "",
+            "! Some scenarios were answered by DIFFERENT models (fallback): their spread mixes "
+            "model differences with run-to-run variance. Compare models with one route each.",
+        ]
+    return lines
+
+
 def render(
     name: str,
     rs: list[results.Result],
     scenarios: dict[str, Scenario],
     judged: list[judge.Judged] | None = None,
     self_judging: bool = False,
+    every: list[results.Result] | None = None,
 ) -> str:
-    """The whole report as markdown. `rs`: the newest result per scenario."""
+    """The whole report as markdown. `rs`: the newest result per scenario; `every`: all lines
+    of the file (repeated runs), for the Repeats section."""
     known = [r for r in rs if r.scenario_id in scenarios]
     grades = [grade(r, scenarios[r.scenario_id]) for r in known]
     done = [g for g in grades if not g.errored]
@@ -165,6 +210,7 @@ def render(
         "## By group",
         "",
         *_group_table(grades),
+        *_repeats(every or [], scenarios),
         "",
         "## False alarms",
         "",
@@ -242,10 +288,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     plant = eval_plant(settings)
     doc_ids = [d.meta.doc_id for d in load_corpus(settings.docs_dir)]
     scenarios = {s.id: s for s in load_scenarios(SCENARIOS, plant, doc_ids)}
-    newest = list(results.latest(results.read(args.results_file)).values())
+    every = results.read(args.results_file)
+    newest = list(results.latest(every).values())
     judged = judge.read_judged(judge.sidecar(args.results_file))
     text = render(
-        args.results_file.stem, newest, scenarios, judged, self_judging=not settings.judge_models
+        args.results_file.stem,
+        newest,
+        scenarios,
+        judged,
+        self_judging=not settings.judge_models,
+        every=every,
     )
     print(text)
     out = args.results_file.with_suffix(".md")

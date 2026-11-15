@@ -63,6 +63,7 @@ jobs:
       - run: uv run mypy mcp/docs_mcp
       # The secret checks again: a local hook can be skipped (--no-verify) or not installed.
       - run: uv run pre-commit run no-openrouter-key --all-files
+      - run: uv run pre-commit run no-groq-key --all-files
       - run: uv run pre-commit run no-env-file --all-files
 
   test:

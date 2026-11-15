@@ -42,6 +42,7 @@ class Attempt:
     tokens_out: int = 0
     reasoning_tokens: int = 0
     finish_reason: str | None = None
+    provider: str = ""  # which provider served this attempt (C1: the fallback crosses them)
 
     @property
     def ok(self) -> bool:
@@ -59,6 +60,7 @@ class LLMResponse:
     reasoning_tokens: int = 0
     attempts: list[Attempt] = field(default_factory=list)
     call_id: uuid.UUID | None = None  # groups this call's attempts in llm_calls
+    provider: str = ""  # who answered (C1); "" for a cache hit
     cached: bool = False  # answered from the prompt cache (2.3): no request made
 
     @property
@@ -83,6 +85,7 @@ class LLMProvider(Protocol):
         *,
         max_tokens: int,
         temperature: float,
+        reasoning_effort: str | None = None,  # from the route (C1); None: the provider default
     ) -> Completion: ...
 
     async def aclose(self) -> None:

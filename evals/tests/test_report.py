@@ -55,7 +55,7 @@ def test_report_counts_false_alarms_errors_and_cost(suite: dict[str, Scenario]) 
         result("no-such-scenario"),
     ]
     text = render("test-run", rs, suite)
-    assert "4 of 48 scenarios run" in text
+    assert f"4 of {len(suite)} scenarios run" in text  # not a constant: the suite grows
     assert "| 3/4 (75 %) |" in text  # completion: 3 of the 4 known runs completed
     assert "invented a fault in 1/1 (100 %)" in text
     assert "blamed the MACHINE in 1/1 (100 %)" in text
@@ -67,3 +67,41 @@ def test_report_counts_false_alarms_errors_and_cost(suite: dict[str, Scenario]) 
 def test_report_of_an_empty_run(suite: dict[str, Scenario]) -> None:
     text = render("empty", [], suite)
     assert "# Eval report: empty" in text and "| 0 | 0 | 0 | 0 | 0 | - | - |" in text
+
+
+def test_repeats_show_every_completed_verdict(suite: dict[str, Scenario]) -> None:
+    right = {"category": "no_fault", "root_cause": "all quiet"}
+    wrong = {"category": "machine_fault", "root_cause": "belt"}
+    every = [
+        result("control-m10", hypothesis=wrong),
+        result("control-m10", status="failed", error="429"),  # not completed: not shown
+        result("control-m10", hypothesis=right),
+        result("sensor-drift-m08", hypothesis=wrong),  # run once: no row
+    ]
+    text = render("r", [every[2], every[3]], suite, every=every)
+    assert "## Repeats" in text
+    assert "| control-m10 | wrong (?), correct (?) | 1/2 (50 %) |" in text  # model not recorded
+    assert "| sensor-drift-m08 |" not in text.split("## Repeats")[1].split("##")[0]
+
+
+def test_repeats_name_the_model_and_warn_when_models_differ(suite: dict[str, Scenario]) -> None:
+    def by(provider: str, model: str) -> list[dict[str, Any]]:
+        return [
+            {
+                "purpose": "agent.hypothesize",
+                "provider": provider,
+                "model": model,
+                "status": "ok",
+                "error_type": None,
+            }
+        ]
+
+    wrong = {"category": "machine_fault", "root_cause": "belt"}
+    right = {"category": "no_fault", "root_cause": "all quiet"}
+    every = [
+        result("control-m10", hypothesis=wrong, llm_calls=by("openrouter", "nvidia/nemotron:free")),
+        result("control-m10", hypothesis=right, llm_calls=by("groq", "openai/gpt-oss-120b")),
+    ]
+    text = render("r", [every[1]], suite, every=every)
+    assert "wrong (openrouter:nemotron:free), correct (groq:gpt-oss-120b)" in text
+    assert "answered by DIFFERENT models" in text

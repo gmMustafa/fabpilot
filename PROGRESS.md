@@ -21,6 +21,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done (verified, quiz answered, 
 - [x] 2.3 Prompt cache (hash → response) toggled by env var
 - [-] 2.4 Optional Ollama provider behind the same interface (skipped: free quota is enough for now; revisit for bulk evals in Phase 8)
 - [x] 2.5 `/gateway/stats` endpoint
+- [x] 2.6 (added) Groq as a second provider: routes `provider:model@effort`, fallback across providers
 
 ## Phase 3 — Knowledge base & RAG
 - [x] 3.1 Synthetic docs in `data/docs/` (manuals, SOPs, ~30 incident reports) — 5 manuals, 9 SOPs, 30 incidents (3.1c TODO written by Claude on request)

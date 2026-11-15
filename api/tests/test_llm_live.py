@@ -24,7 +24,7 @@ async def test_real_llm_answers_through_the_gateway() -> None:
             [ChatMessage(role="user", content="Reply with exactly the word: OK")], max_tokens=400
         )
     finally:
-        await gateway.provider.aclose()
+        await gateway.aclose()
     assert result.text.strip(), "empty answer"
     assert result.model and result.tokens_in > 0
     print(

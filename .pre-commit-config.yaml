@@ -33,3 +33,8 @@ repos:
         entry: 'sk-or-[A-Za-z0-9_-]{12,}'
         language: pygrep
         exclude: '^uv\.lock$'
+      - id: no-groq-key
+        name: no Groq API key in committed files
+        entry: 'gsk_[A-Za-z0-9]{20,}'
+        language: pygrep
+        exclude: '^uv\.lock$'

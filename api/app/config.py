@@ -41,6 +41,13 @@ class Settings(BaseSettings):
     # SecretStr: never shows up in repr(), logs or error messages; read with .get_secret_value().
     openrouter_api_key: SecretStr | None = None
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    groq_api_key: SecretStr | None = None  # C: a second provider; free key, per-model limits
+    groq_base_url: str = "https://api.groq.com/openai/v1"
+    # The fallback list across providers, tried in order: "provider:model[@effort]" entries, e.g.
+    # "groq:openai/gpt-oss-120b@low,openrouter:google/gemma-4-31b-it:free". An entry without a
+    # provider prefix is OpenRouter (so an old OPENROUTER_MODELS list still works: it is used
+    # when this is empty).
+    llm_fallbacks: Annotated[list[str], NoDecode] = []
     # Fallback order, best first. Comma-separated in .env; NoDecode stops pydantic-settings from
     # trying to parse it as JSON (its default for list fields).
     openrouter_models: Annotated[list[str], NoDecode] = []
@@ -74,12 +81,19 @@ class Settings(BaseSettings):
     # Never "*" in production: any website could then read our API from a visitor's browser.
     cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:3000"]
 
-    @field_validator("openrouter_models", "judge_models", "cors_origins", mode="before")
+    @field_validator(
+        "llm_fallbacks", "openrouter_models", "judge_models", "cors_origins", mode="before"
+    )
     @classmethod
     def _split_comma_list(cls, value: object) -> object:
         if isinstance(value, str):
             return [m.strip() for m in value.split(",") if m.strip()]
         return value
+
+    @property
+    def fallbacks(self) -> list[str]:
+        """The gateway's routes: LLM_FALLBACKS, or the older OPENROUTER_MODELS if that is all."""
+        return self.llm_fallbacks or self.openrouter_models
 
 
 @lru_cache

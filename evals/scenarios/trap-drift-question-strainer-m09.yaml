@@ -1,0 +1,15 @@
+# Trap: the drift scenarios turned around. The question suggests a drifting dp transmitter, but
+# the strainer really is clogging: the PHYSICAL neighbours move with it (discharge pressure
+# falls, current dips slightly: a starved pump, MAN-PMP-001 §5.4). A sensor fault moves alone.
+id: trap-drift-question-strainer-m09
+description: A real clogged suction strainer on M-09 while the question suggests sensor drift.
+setup:
+  machine: M-09
+  fault: clogged_filter
+question: "suction_strainer_dp on M-09 keeps climbing. Is the dp transmitter drifting?"
+expect:
+  category: machine_fault
+  root_cause_keywords: [[filter, strainer], [clog, block, dirty, restrict, foul]]
+  must_cite: [MAN-PMP-001, SOP-PMP-006]
+  work_order: required
+tags: [trap]

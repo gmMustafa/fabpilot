@@ -171,6 +171,16 @@ async def test_a_failing_tool_becomes_evidence_not_a_crash() -> None:
     assert "no readings" in out["evidence"].errors[0]
 
 
+async def test_diagnosis_searches_knowledge_not_incidents() -> None:
+    """Incidents come from list_incident_reports; the search is for manuals and SOPs (8.3c: an
+    all-types search returned only incidents, and the manual was never retrieved)."""
+    tools = fake_tools()
+    await investigate(AgentState(question="q", machine="M-08"), tools, clock=lambda: NOW)
+    search = next(a for s, t, a in tools.calls if t == "search_docs")
+    assert search["source_types"] == ["manual", "sop"]
+    assert any(t == "list_incident_reports" for _, t, _ in tools.calls)
+
+
 async def test_procedure_questions_search_sops() -> None:
     tools = fake_tools()
     state = AgentState(question="replace the inlet filter", machine="M-08", intent=Intent.PROCEDURE)

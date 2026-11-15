@@ -105,3 +105,15 @@ def test_resume_skips_only_completed_scenarios(tmp_path: Path) -> None:
 
 def test_reading_a_missing_file_is_an_empty_run(tmp_path: Path) -> None:
     assert read(tmp_path / "none.jsonl") == [] and done_ids(tmp_path / "none.jsonl") == set()
+
+
+def test_completed_counts_drive_repeats(tmp_path: Path) -> None:
+    """--repeat N runs a scenario until N runs COMPLETED: crashes don't count (retried)."""
+    from agent_evals.results import completed_counts
+
+    path = tmp_path / "run.jsonl"
+    append(path, Result(**run_fields("a")))
+    append(path, Result(**run_fields("a", status="failed", error="429")))
+    append(path, Result(**run_fields("a")))
+    append(path, Result(**run_fields("b", llm_error="every model failed")))
+    assert completed_counts(path) == {"a": 2}

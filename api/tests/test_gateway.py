@@ -14,6 +14,7 @@ from app.gateway.gateway import (
     backoff_delay,
     classify,
 )
+from app.gateway.routes import Route, next_index, parse_route
 from app.gateway.types import (
     AllModelsFailedError,
     AuthError,
@@ -38,16 +39,23 @@ Outcome = Completion | ProviderError
 class FakeProvider:
     """Plays back a script: model -> list of outcomes, one per call. Records every call."""
 
-    name = "fake"
-
-    def __init__(self, script: dict[str, Sequence[Outcome]]) -> None:
+    def __init__(self, script: dict[str, Sequence[Outcome]], name: str = "fake") -> None:
+        self.name = name
         self.script = {m: list(o) for m, o in script.items()}
         self.calls: list[str] = []
+        self.efforts: list[str | None] = []
 
     async def complete(
-        self, model: str, messages: list[ChatMessage], *, max_tokens: int, temperature: float
+        self,
+        model: str,
+        messages: list[ChatMessage],
+        *,
+        max_tokens: int,
+        temperature: float,
+        reasoning_effort: str | None = None,
     ) -> Completion:
         self.calls.append(model)
+        self.efforts.append(reasoning_effort)
         outcome = self.script[model].pop(0)
         if isinstance(outcome, ProviderError):
             raise outcome
@@ -104,7 +112,7 @@ MSG = [ChatMessage(role="user", content="hi")]
         (RateLimitedError("r", status=429, retry_after=MAX_DELAY), Action.RETRY_SAME),  # boundary
         (RateLimitedError("r", status=429, retry_after=600), Action.NEXT_MODEL),
         (ModelUnavailableError("m", status=404), Action.NEXT_MODEL),
-        (QuotaExhaustedError("q", status=429), Action.FAIL),  # account-wide: all models fail
+        (QuotaExhaustedError("q", status=429), Action.NEXT_PROVIDER),  # this provider is out
         (BadRequestError("b", status=400), Action.FAIL),
         # 5.2b: a generous budget and still no answer -> this model over-thinks, try the next;
         # a tiny budget -> our misconfiguration (2.1b), a fallback would hide it.
@@ -115,7 +123,7 @@ MSG = [ChatMessage(role="user", content="hi")]
         ),
         (OutputTruncatedError("t", status=200, max_tokens=20), Action.FAIL),
         (OutputTruncatedError("t", status=200), Action.FAIL),  # budget unknown -> fail closed
-        (AuthError("a", status=401), Action.FAIL),
+        (AuthError("a", status=401), Action.NEXT_PROVIDER),  # this provider's key
         (ProviderError("something new"), Action.FAIL),  # unknown -> fail closed
     ],
     ids=lambda v: type(v).__name__ if isinstance(v, ProviderError) else str(v),
@@ -434,3 +442,127 @@ async def test_an_over_thinking_model_falls_back_to_the_next() -> None:
     gateway, provider, _ = make({"a:free": [over_thought], "b:free": [answer]})
     r = await gateway.chat(MSG, max_tokens=4000)
     assert r.text == "an answer" and provider.calls == ["a:free", "b:free"]
+
+
+# ------------------------------------------------------------------ routes across providers (C1)
+
+
+def test_parse_route_prefix_effort_and_backward_compatibility() -> None:
+    known = {"openrouter", "groq"}
+    assert parse_route("groq:openai/gpt-oss-120b@low", "openrouter", known) == Route(
+        "groq", "openai/gpt-oss-120b", "low"
+    )
+    # an OpenRouter id contains ":" itself: only a KNOWN provider name is a prefix
+    assert parse_route("nvidia/x:free", "openrouter", known) == Route("openrouter", "nvidia/x:free")
+    assert str(Route("groq", "qwen/qwen3-32b", "none")) == "groq:qwen/qwen3-32b@none"
+
+
+@pytest.mark.parametrize(
+    ("text", "message"),
+    [
+        ("groq:m@turbo", "unknown effort"),
+        ("groq:", "no model"),
+        ("", "empty"),
+    ],
+)
+def test_parse_route_rejects_bad_entries(text: str, message: str) -> None:
+    with pytest.raises(ValueError, match=message):
+        parse_route(text, "openrouter", {"openrouter", "groq"})
+
+
+def test_one_provider_owns_every_unprefixed_route() -> None:
+    """The old setup (one provider, plain model ids) keeps meaning what it meant."""
+    gw = LLMGateway(FakeProvider({}, name="openrouter"), GatewayConfig(models=["m", "n:free"]))
+    assert gw.routes == [Route("openrouter", "m"), Route("openrouter", "n:free")]
+
+
+def test_a_route_for_an_unconfigured_provider_fails_at_startup() -> None:
+    with pytest.raises(ValueError, match="not configured"):
+        parse_route("x", "groq", {"openrouter"})  # default provider missing
+
+
+R = [Route("groq", "a"), Route("groq", "b"), Route("openrouter", "c")]
+MIXED = [Route("groq", "a"), Route("openrouter", "b"), Route("groq", "c")]
+
+
+@pytest.mark.parametrize(
+    ("routes", "current", "dead", "expected"),
+    [
+        (R, 0, set(), 1),  # next model, same provider
+        (R, 0, {"groq"}, 2),  # groq is out: skip groq b
+        (MIXED, 1, {"openrouter"}, 2),
+        (MIXED, 0, {"groq"}, 1),  # skip groq; groq c later is skipped too (see the next case)
+        (MIXED, 1, {"groq"}, None),  # after openrouter b only groq c is left, and it's dead
+        (R, 2, set(), None),  # the end of the list
+    ],
+)
+def test_next_index_skips_dead_providers(
+    routes: list[Route], current: int, dead: set[str], expected: int | None
+) -> None:
+    assert next_index(routes, current, dead) == expected
+
+
+def two_providers(
+    groq: dict[str, Sequence[Outcome]], openrouter: dict[str, Sequence[Outcome]], models: list[str]
+) -> tuple[LLMGateway, FakeProvider, FakeProvider]:
+    g, o = FakeProvider(groq, name="groq"), FakeProvider(openrouter, name="openrouter")
+    clock = FakeClock()
+    gateway = LLMGateway(
+        {"groq": g, "openrouter": o},
+        GatewayConfig(models=models, max_delay=MAX_DELAY),
+        sleep=clock.sleep,
+        clock=clock,
+        rng=lambda: 0.5,
+    )
+    return gateway, g, o
+
+
+async def test_a_providers_daily_quota_skips_all_its_routes_and_falls_back_to_another() -> None:
+    gw, groq, _ = two_providers(
+        {"a": [QuotaExhaustedError("RPD reached", status=429)], "c": [ok("c")]},
+        {"b": [ok("b")]},
+        ["groq:a", "groq:c", "openrouter:b"],
+    )
+    r = await gw.chat(MSG)
+    assert (r.text, r.provider) == ("answer from b", "openrouter")
+    assert groq.calls == ["a"]  # groq:c is skipped: groq's quota is gone for all its models
+    assert [a.provider for a in r.attempts] == ["groq", "openrouter"]
+
+
+async def test_one_providers_bad_key_doesnt_stop_the_other() -> None:
+    gw, _, openrouter = two_providers(
+        {"a": [AuthError("invalid key", status=401)]}, {"b": [ok("b")]}, ["groq:a", "openrouter:b"]
+    )
+    assert (await gw.chat(MSG)).provider == "openrouter" and openrouter.calls == ["b"]
+
+
+async def test_when_every_provider_is_out_the_last_error_is_raised_as_is() -> None:
+    gw, _, _ = two_providers(
+        {"a": [QuotaExhaustedError("groq RPD", status=429)]},
+        {"b": [QuotaExhaustedError("free-models-per-day", status=429)]},
+        ["groq:a", "openrouter:b"],
+    )
+    with pytest.raises(QuotaExhaustedError, match="free-models-per-day") as e:
+        await gw.chat(MSG)
+    assert len(e.value.attempts) == 2  # both attempts are billed
+
+
+async def test_the_routes_effort_reaches_the_provider() -> None:
+    gw, groq, _ = two_providers({"a": [ok("a")]}, {}, ["groq:a@low", "openrouter:b"])
+    await gw.chat(MSG)
+    assert groq.efforts == ["low"]
+
+
+async def test_aclose_closes_every_provider() -> None:
+    closed: list[str] = []
+
+    class Closing(FakeProvider):
+        async def aclose(self) -> None:
+            closed.append(self.name)
+
+    gw = LLMGateway(
+        {"groq": Closing({}, name="groq"), "openrouter": Closing({}, name="openrouter")},
+        GatewayConfig(models=["groq:a"]),
+    )
+    await gw.aclose()
+    assert closed == ["groq", "openrouter"]

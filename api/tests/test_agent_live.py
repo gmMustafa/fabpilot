@@ -41,7 +41,7 @@ async def test_q1_end_to_end_with_the_real_llm() -> None:
                 "M-08 has a discharge temperature alarm. Is the compressor overheating?",
             )
     finally:
-        await gateway.provider.aclose()
+        await gateway.aclose()
         await engine.dispose()
     assert state.answer and state.hypothesis is not None and not state.guard_errors
     retrieved = state.evidence.cited_ids()

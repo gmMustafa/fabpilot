@@ -173,9 +173,14 @@ async def investigate(
     evidence = Evidence(
         machine=detail, alarm_log=alarm_log, anomalies=anomalies, incidents=incidents, errors=errors
     )
+    # Manuals and SOPs only: incidents already arrive through list_incident_reports (the I lines).
+    # One search over ALL types returned only incident reports in the 8.3c evals (30 incidents vs
+    # 5 manuals): the manual with the diagnosis table never reached the agent, so it couldn't be
+    # cited. Knowledge from the search, analogies from the incident list.
     search: dict[str, Any] = {
         "query": doc_query(state.question, evidence),
         "machine_type": detail["type"],
+        "source_types": ["manual", "sop"],
         "k": DOC_HITS,
     }
     if state.intent is Intent.PROCEDURE:

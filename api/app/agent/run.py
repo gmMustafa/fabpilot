@@ -193,7 +193,7 @@ async def _main(args: argparse.Namespace) -> int:
                     final = await decide(graph, thread_id)
                     print(outcome(final) if final else paused_hint(thread_id))
     finally:
-        await gateway.provider.aclose()
+        await gateway.aclose()
         await engine.dispose()
     return 0
 
