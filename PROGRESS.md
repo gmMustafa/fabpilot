@@ -47,7 +47,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done (verified, quiz answered, 
 - [x] 6.3 OpenAPI → TypeScript types
 
 ## Phase 7 — Next.js dashboard
-- [ ] 7.1 Setup: Next.js, Tailwind, shadcn/ui, API client
+- [x] 7.1 Setup: Next.js, Tailwind, shadcn/ui, API client
 - [ ] 7.2 Plant overview
 - [ ] 7.3 Machine page: charts + alarm timeline
 - [ ] 7.4 Incident page: streaming chat + evidence panel

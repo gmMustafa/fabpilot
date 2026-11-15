@@ -1,0 +1,69 @@
+name: web-ci
+
+# Lint + type-check + test + build the dashboard (web/), and check that its generated API types
+# match the API's committed contract (api/openapi.json, 6.3).
+on:
+  push:
+    branches: [main]
+    paths:
+      - "web/**"
+      - "api/openapi.json" # an API change must re-check the frontend that builds on it
+      - ".github/workflows/web-ci.yml"
+  pull_request:
+    # Same list as above (kept literal, like python-ci.yml).
+    paths:
+      - "web/**"
+      - "api/openapi.json"
+      - ".github/workflows/web-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Actions pinned by commit SHA, the release in the comment (as in python-ci.yml).
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    env:
+      NEXT_TELEMETRY_DISABLED: "1" # no usage data from CI builds
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22" # match local Node 22
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          # No `version:` here: read from "packageManager" (pnpm@10.33.2), so CI and local can't
+          # drift apart. The path is relative to the repo root.
+          package_json_file: web/package.json
+          cache: true
+          cache_dependency_path: web/pnpm-lock.yaml
+
+      # --frozen-lockfile: fail if pnpm-lock.yaml doesn't match package.json (never re-resolve).
+      - run: pnpm install --frozen-lockfile
+
+      # The frontend half of the 6.3 contract: regenerate the types from the committed spec and
+      # fail if they differ from the committed ones. Red means: the API changed (openapi.json)
+      # but `pnpm gen:api` wasn't run, or the generated file was edited by hand.
+      - name: generated API types match api/openapi.json
+        run: |
+          pnpm gen:api
+          git diff --exit-code -- src/lib/api/schema.d.ts || {
+            echo "::error::src/lib/api/schema.d.ts is out of date: run 'pnpm gen:api' in web/ and commit it"
+            exit 1
+          }
+
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm format:check
+      - run: pnpm test
+      # Needs no running API: data streams in at request time (Cache Components + Suspense).
+      - run: pnpm build
