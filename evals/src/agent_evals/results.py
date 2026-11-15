@@ -45,6 +45,11 @@ class Result(BaseModel):
     evidence_errors: list[str] = []
     retrieved_docs: list[str] = []  # the documents a citation may name (guardrails, 5.2b)
     usage: Usage = Usage()
+    # every provider attempt of this run (purpose, model, status, error_type): WHICH model
+    # answered, which failed first. `models` below is only the configured fallback list.
+    llm_calls: list[dict[str, Any]] = []
+    # the scenario's setup when it ran: grading flags results whose scenario changed since
+    setup: dict[str, Any] | None = None
     wall_seconds: float
     # the conditions of the run: a cached answer measures nothing new; models rotate (free tier)
     cache: bool

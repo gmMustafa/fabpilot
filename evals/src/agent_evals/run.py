@@ -165,6 +165,12 @@ async def run_scenario(
     done = next(e for e in reversed(handle.events) if e.event == "done")
     error = next((e.data["error"] for e in handle.events if e.event == "error"), None)
     found = await service.state(handle.thread_id)
+    # Runs are sequential, so the gateway's log rows since this run started are this run's.
+    calls = conn.execute(
+        "SELECT purpose, model, status, error_type FROM llm_calls"
+        " WHERE time >= %s ORDER BY time, attempt_no",
+        (started_at,),
+    ).fetchall()
     return results.from_state(
         found[0] if found else None,
         scenario_id=s.id,
@@ -173,6 +179,10 @@ async def run_scenario(
         machine=s.setup.machine,
         question=s.question,
         error=error,
+        llm_calls=[
+            {"purpose": p, "model": m, "status": st, "error_type": et} for p, m, st, et in calls
+        ],
+        setup=s.setup.model_dump(mode="json"),
         wall_seconds=round(time.perf_counter() - t0, 1),
         cache=settings.llm_cache_enabled,
         models=settings.openrouter_models,
