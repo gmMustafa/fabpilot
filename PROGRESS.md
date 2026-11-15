@@ -55,7 +55,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done (verified, quiz answered, 
 - [x] 7.6 Gateway/cost page (+ UI pass: sidebar shell, palette, logo, About page, alarm banner + suggested questions)
 
 ## Phase 8 — Evals
-- [ ] 8.1 Scenario format (YAML)
+- [x] 8.1 Scenario format (YAML) — evals/ package, 3 example scenarios, checked in CI
 - [ ] 8.2 ~50 scenarios
 - [ ] 8.3 Metrics
 - [ ] 8.4 LLM-as-judge

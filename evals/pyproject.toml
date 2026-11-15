@@ -1,0 +1,27 @@
+[project]
+name = "fabpilot-evals"
+version = "0.1.0"
+description = "Agent evals: fault scenarios with known root causes, and (8.3) the runner that grades the agent on them."
+requires-python = ">=3.12"
+dependencies = [
+    # The agent's output types (Category) and the plant/document loaders.
+    "fabpilot-api",
+    # The ground truth: which faults exist, where they can happen, their default durations.
+    "fabpilot-simulator",
+]
+
+[tool.uv.sources]
+fabpilot-api = { workspace = true }
+fabpilot-simulator = { workspace = true }
+
+[build-system]
+requires = ["uv_build>=0.11.6,<0.12.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "agent_evals"
+
+# ---------------------------------------------------------------- pytest (run from evals/)
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--strict-markers"

@@ -1,0 +1,10 @@
+# Control: NOTHING is injected. The honest answers are "no fault" or "the data doesn't decide
+# it"; inventing a fault (and a repair) for a healthy machine is the failure this catches.
+id: control-m10
+description: Healthy conveyor, no fault injected; the agent must not invent a problem.
+setup:
+  machine: M-10
+question: "Is anything wrong with M-10? Should we schedule maintenance?"
+expect:
+  category: [no_fault, unknown]
+  work_order: forbidden

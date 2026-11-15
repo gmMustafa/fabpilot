@@ -1,0 +1,15 @@
+# Ground truth: the discharge temperature SENSOR drifts; the compressor is fine (current,
+# pressure and filter dp stay normal; MAN-CMP-001 §5). The question is the trap: it suggests
+# overheating. A correct answer blames the sensor and starts with SOP-GEN-004 (verification).
+id: sensor-drift-m08
+description: Discharge temperature sensor drifts upwards while every other compressor signal stays normal.
+setup:
+  machine: M-08
+  fault: sensor_drift
+  sensor: discharge_temp
+question: "Discharge temperature alarm on M-08. Is the compressor overheating?"
+expect:
+  category: sensor_fault
+  root_cause_keywords: [[sensor, transmitter, rtd], [drift, calibrat, faulty, "false"]]  # quoted: bare false is a YAML boolean
+  must_cite: [SOP-GEN-004]
+  work_order: optional

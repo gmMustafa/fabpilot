@@ -12,6 +12,7 @@ resolution-markers = [
 members = [
     "fabpilot-api",
     "fabpilot-docs-mcp",
+    "fabpilot-evals",
     "fabpilot-sensor-mcp",
     "fabpilot-simulator",
 ]
@@ -528,6 +529,21 @@ dependencies = [
 requires-dist = [
     { name = "fabpilot-api", editable = "api" },
     { name = "mcp", specifier = ">=2.3.0" },
+]
+
+[[package]]
+name = "fabpilot-evals"
+version = "0.1.0"
+source = { editable = "evals" }
+dependencies = [
+    { name = "fabpilot-api" },
+    { name = "fabpilot-simulator" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "fabpilot-api", editable = "api" },
+    { name = "fabpilot-simulator", editable = "simulator" },
 ]
 
 [[package]]

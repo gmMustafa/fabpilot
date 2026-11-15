@@ -7,6 +7,8 @@ on:
     paths:
       - "api/**"
       - "simulator/**"
+      - "mcp/**"
+      - "evals/**" # agent eval scenarios are validated by tests (8.1)
       - "data/**" # plant.yaml is validated by tests
       - "pyproject.toml" # workspace root: shared tool config + dev deps
       - "uv.lock"
@@ -18,6 +20,8 @@ on:
     paths:
       - "api/**"
       - "simulator/**"
+      - "mcp/**"
+      - "evals/**"
       - "data/**"
       - "pyproject.toml"
       - "uv.lock"
@@ -102,4 +106,7 @@ jobs:
         run: uv run pytest -v
       - name: pytest (docs-mcp)
         working-directory: mcp/docs_mcp
+        run: uv run pytest -v
+      - name: pytest (evals)
+        working-directory: evals
         run: uv run pytest -v
