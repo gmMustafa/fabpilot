@@ -1,0 +1,18 @@
+# Trap: the question invites dismissal. Below the trip threshold (severity 0.8 < 1.0) the
+# machine keeps running, but the episodes are still overload: current up WHILE speed sags.
+id: trap-overload-no-trip-m05
+description: Motor overload on M-05 below the trip threshold; the question suggests it's nothing.
+setup:
+  machine: M-05
+  fault: motor_overload
+  severity: 0.8
+question: "M-05 had a few current spikes this morning. Probably nothing, right?"
+expect:
+  category: machine_fault
+  root_cause_keywords: [[overload, overcurrent, excessive load, high load]]
+  must_cite: [MAN-IMM-001]
+  work_order: optional
+tags: [trap]
+notes: >-
+  No trip, so no urgent repair: a work order is optional, but calling the episodes harmless
+  is wrong (current rising while screw speed sags is the overload signature).

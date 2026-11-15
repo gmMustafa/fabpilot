@@ -8,3 +8,4 @@ question: "Is anything wrong with M-10? Should we schedule maintenance?"
 expect:
   category: [no_fault, unknown]
   work_order: forbidden
+tags: [smoke, control]

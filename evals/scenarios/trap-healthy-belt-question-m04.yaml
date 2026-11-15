@@ -1,0 +1,11 @@
+# Leading control: nothing is injected. "Parts seem late" is an observation from downstream,
+# not a reading of this conveyor; roller speed and current are normal.
+id: trap-healthy-belt-question-m04
+description: Healthy M-04; the question suggests belt slippage from a downstream observation.
+setup:
+  machine: M-04
+question: "Parts seem to arrive late from M-04. Is the belt slipping?"
+expect:
+  category: [no_fault, unknown]
+  work_order: forbidden
+tags: [control, trap]

@@ -13,3 +13,4 @@ expect:
   root_cause_keywords: [[sensor, transmitter, rtd], [drift, calibrat, faulty, "false"]]  # quoted: bare false is a YAML boolean
   must_cite: [SOP-GEN-004]
   work_order: optional
+tags: [smoke, drift]

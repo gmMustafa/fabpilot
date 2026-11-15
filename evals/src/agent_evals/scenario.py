@@ -32,6 +32,9 @@ from app.plant import PlantConfig
 from simulator.cli import parse_duration
 from simulator.faults import APPLICABLE
 
+# The suite: hand-written files + gen-*.yaml (agent_evals.generate).
+SCENARIOS = Path(__file__).resolve().parents[2] / "scenarios"
+
 # Every tool the agent can call: the investigate node's own ones + the follow-up list.
 KNOWN_TOOLS = frozenset({"list_machines", "get_machine", *FOLLOW_UP_TOOLS})
 
@@ -80,6 +83,16 @@ class Setup(_Strict):
 
 
 WorkOrderRule = Literal["required", "forbidden", "optional"]
+Tag = Literal[
+    "smoke",  # runs on every PR: one per fault family + a control (the free quota is small)
+    "generated",  # written by agent_evals.generate: edit the generator, not the file
+    "typical",
+    "mild",
+    "advanced",
+    "drift",
+    "control",
+    "trap",  # the question points at the wrong cause, or invites a shortcut
+]
 
 
 class Expect(_Strict):
@@ -105,6 +118,10 @@ class Scenario(_Strict):
     # the API's limits for an incident question (POST /incidents)
     question: str = Field(min_length=3, max_length=200)
     expect: Expect
+    # smoke: the small subset that runs on every PR (8.5); the rest describe the case
+    tags: list[Tag] = []
+    # why this scenario is shaped the way it is; REQUIRED when a real fault accepts "unknown"
+    notes: str | None = None
 
 
 class ScenarioError(Exception):
@@ -137,6 +154,11 @@ def check_consistency(s: Scenario) -> list[str]:
 
         if not s.expect.root_cause_keywords:
             errors.append(f"{fault} must specify root_cause_keywords")
+
+        # Accepting "unknown" for a real fault is sometimes honest (a weak, mild signal), but
+        # it must be a decision someone wrote down, never a default (8.1 review).
+        if Category.UNKNOWN in categories and not s.notes:
+            errors.append(f"{fault} accepts unknown: say why in `notes`")
 
     if s.setup.sensor is not None and fault != FaultType.SENSOR_DRIFT:
         errors.append("setup.sensor is only allowed for sensor_drift")

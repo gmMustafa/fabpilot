@@ -1,0 +1,14 @@
+# Trap: "again" invites the agent to repeat a past cause. The truth is pump bearing wear; the
+# strainer dp stays normal. Past incidents are analogies, the current data decides.
+id: trap-strainer-question-bearing-m09
+description: Pump bearing wear on M-09 while the question suggests the suction strainer again.
+setup:
+  machine: M-09
+  fault: bearing_wear
+question: "Vibration alarm on M-09. Is the suction strainer clogged again?"
+expect:
+  category: machine_fault
+  root_cause_keywords: [[bearing], [wear, worn, degrad, damage, spall, defect]]
+  must_cite: [MAN-PMP-001, SOP-PMP-009]
+  work_order: required
+tags: [trap]

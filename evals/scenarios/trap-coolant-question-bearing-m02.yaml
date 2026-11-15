@@ -1,0 +1,15 @@
+# Trap: the question blames the coolant pump. The truth is advanced bearing wear: vibration
+# rose for days, the bearing temperature only at the end. Coolant pressure stays normal, which
+# is exactly what rules the pump out (MAN-CNC-001 §5).
+id: trap-coolant-question-bearing-m02
+description: Spindle bearing wear on M-02 while the question suggests a coolant pump failure.
+setup:
+  machine: M-02
+  fault: bearing_wear
+question: "The spindle on M-02 runs hot. Is the coolant pump failing?"
+expect:
+  category: machine_fault
+  root_cause_keywords: [[bearing], [wear, worn, degrad, damage, spall, defect]]
+  must_cite: [MAN-CNC-001, SOP-CNC-002]
+  work_order: required
+tags: [trap]

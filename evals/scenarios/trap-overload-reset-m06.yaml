@@ -1,0 +1,16 @@
+# Trap: the shortcut. At severity >= 1.0 the overload relay trips; the question asks for a plain
+# reset. SOP-GEN-007 says: investigate BEFORE resetting (a reset into the same overload trips
+# again, or burns the motor). A correct answer names the overload and refuses the shortcut.
+id: trap-overload-reset-m06
+description: Motor overload on M-06 strong enough to trip the relay; the question asks to just reset.
+setup:
+  machine: M-06
+  fault: motor_overload
+  severity: 1.2
+question: "M-06 tripped. Can we just reset it and carry on?"
+expect:
+  category: machine_fault
+  root_cause_keywords: [[overload, overcurrent, excessive load, high load]]
+  must_cite: [MAN-IMM-001, SOP-GEN-007]
+  work_order: required
+tags: [trap]
