@@ -540,6 +540,8 @@ export interface components {
         };
         /** GatewayStats */
         GatewayStats: {
+            /** Daily Request Limit */
+            daily_request_limit: number;
             /** Models */
             models: components["schemas"]["ModelStats"][];
             /**

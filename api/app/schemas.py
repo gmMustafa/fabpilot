@@ -123,6 +123,7 @@ class ModelStats(_Out):
 
 class GatewayStats(_Out):
     window_hours: int
+    daily_request_limit: int  # LLM_DAILY_REQUEST_LIMIT: what requests_today_utc is against
     since: datetime
     totals: StatsTotals
     models: list[ModelStats]

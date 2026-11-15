@@ -52,7 +52,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done (verified, quiz answered, 
 - [x] 7.3 Machine page: charts + alarm timeline
 - [x] 7.4 Incident page: streaming chat + evidence panel
 - [x] 7.5 Approval queue
-- [ ] 7.6 Gateway/cost page
+- [x] 7.6 Gateway/cost page (+ UI pass: sidebar shell, palette, logo, About page, alarm banner + suggested questions)
 
 ## Phase 8 — Evals
 - [ ] 8.1 Scenario format (YAML)

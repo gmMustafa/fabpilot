@@ -35,7 +35,6 @@ import {
   Wrench,
 } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { api } from "@/lib/api/client";
 import { describeError } from "@/lib/api/errors";
@@ -61,49 +60,56 @@ const TYPE_ICON: Record<MachineTile["type"], LucideIcon> = {
 
 const TONE: Record<
   TileState,
-  { label: string; icon: LucideIcon; className: string; iconClassName: string }
+  { label: string; icon: LucideIcon; className: string; iconClassName: string; pill: string }
 > = {
   critical: {
     label: "Critical alarm",
     icon: OctagonAlert,
-    className: "border-red-600 bg-red-50 dark:bg-red-950/40",
+    className: "border-l-red-600 bg-red-50/70",
+    pill: "bg-red-600 text-white",
     iconClassName: "text-red-600 motion-safe:animate-pulse",
   },
   down: {
     label: "Down",
     icon: PowerOff,
-    className: "border-red-600",
+    className: "border-l-red-600",
+    pill: "bg-red-100 text-red-800",
     iconClassName: "text-red-600",
   },
   warning: {
     label: "Warning",
     icon: TriangleAlert,
-    className: "border-amber-500 bg-amber-50 dark:bg-amber-950/40",
+    className: "border-l-amber-500 bg-amber-50/70",
+    pill: "bg-amber-100 text-amber-900",
     // slower than the critical pulse: noticeable, but calmer
     iconClassName: "text-amber-600 motion-safe:animate-[pulse_3s_ease-in-out_infinite]",
   },
   maintenance: {
     label: "Maintenance",
     icon: Wrench,
-    className: "border-sky-500",
+    className: "border-l-sky-600",
+    pill: "bg-sky-50 text-sky-800",
     iconClassName: "text-sky-600",
   },
   idle: {
     label: "Idle",
     icon: Pause,
-    className: "border-slate-400",
+    className: "border-l-slate-400",
+    pill: "bg-slate-100 text-slate-700",
     iconClassName: "text-slate-500",
   },
   ok: {
     label: "OK",
     icon: CircleCheck,
-    className: "border-emerald-500",
+    className: "border-l-emerald-600",
+    pill: "bg-emerald-50 text-emerald-800",
     iconClassName: "text-emerald-600",
   },
   "no-data": {
     label: "No data",
     icon: WifiOff,
-    className: "border-dashed border-slate-400 opacity-70",
+    className: "border-l-slate-300 border-dashed opacity-80",
+    pill: "bg-slate-100 text-slate-600",
     iconClassName: "text-slate-500",
   },
 };
@@ -148,7 +154,7 @@ function Tile({ tile, now, index }: { tile: MachineTile; now: Date; index: numbe
     >
       <Card
         className={cn(
-          "relative h-full gap-2 border-2 py-4 transition-colors duration-700 hover:shadow-md",
+          "relative h-full gap-2 border border-l-4 py-4 shadow-xs transition-[colors,box-shadow] duration-700 hover:border-primary/40 hover:shadow-md",
           // fade + slide in, one tile after the other; fill-mode-both keeps each tile invisible
           // until its own delay has passed (otherwise it would flash, then animate)
           "motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2",
@@ -168,13 +174,23 @@ function Tile({ tile, now, index }: { tile: MachineTile; now: Date; index: numbe
               <TypeIcon className="size-5 text-muted-foreground" aria-hidden />
               <CardTitle className="font-mono text-base">{tile.code}</CardTitle>
             </div>
-            <Badge
-              variant={state === "critical" || state === "down" ? "destructive" : "outline"}
-              className="gap-1"
+            <span
+              className={cn(
+                "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium",
+                tone.pill,
+              )}
             >
-              <StateIcon className={cn("size-3.5", tone.iconClassName)} aria-hidden />
+              <StateIcon
+                className={cn(
+                  "size-3.5",
+                  state === "critical"
+                    ? "text-white motion-safe:animate-pulse"
+                    : tone.iconClassName,
+                )}
+                aria-hidden
+              />
               {tone.label}
-            </Badge>
+            </span>
           </div>
           <p className="text-sm text-muted-foreground">
             {tile.name} · {tile.type.replace("_", " ")}
@@ -253,7 +269,7 @@ export function PlantOverview() {
       </p>
       {lines.map(([line, machines]) => (
         <section key={line} className="space-y-3">
-          <h2 className="text-sm font-semibold tracking-wide text-muted-foreground uppercase">
+          <h2 className="flex items-center gap-3 text-xs font-semibold tracking-wider text-primary uppercase after:h-px after:flex-1 after:bg-border">
             {line}
           </h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">

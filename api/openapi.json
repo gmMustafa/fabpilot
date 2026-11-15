@@ -434,6 +434,10 @@
       },
       "GatewayStats": {
         "properties": {
+          "daily_request_limit": {
+            "title": "Daily Request Limit",
+            "type": "integer"
+          },
           "models": {
             "items": {
               "$ref": "#/components/schemas/ModelStats"
@@ -456,6 +460,7 @@
         },
         "required": [
           "window_hours",
+          "daily_request_limit",
           "since",
           "totals",
           "models"

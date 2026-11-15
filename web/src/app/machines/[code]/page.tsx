@@ -1,25 +1,25 @@
+import { Search } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
 
+import { ActiveAlarmBanner } from "@/components/active-alarm-banner";
 import { MachineView } from "@/components/machine-view";
-import { Badge } from "@/components/ui/badge";
+import { Page, PageHeader } from "@/components/page-header";
+import { buttonVariants } from "@/components/ui/button";
 import { api } from "@/lib/api/client";
 import { describeError } from "@/lib/api/errors";
 import { formatAge, isStale } from "@/lib/plant/tile-state";
+import { cn } from "@/lib/utils";
 
-// The shell (back link) is static; the machine streams in. `params` is runtime data in
-// Next.js 16 (a Promise), so it is awaited INSIDE the Suspense boundary, not in the page.
+// `params` is runtime data in Next.js 16 (a Promise): awaited INSIDE the Suspense boundary.
 export default function MachinePage({ params }: PageProps<"/machines/[code]">) {
   return (
-    <main className="mx-auto flex max-w-7xl flex-col gap-6 p-6">
-      <Link href="/" className="text-sm text-muted-foreground hover:underline">
-        ← Plant overview
-      </Link>
+    <Page>
       <Suspense fallback={<p className="text-sm text-muted-foreground">Loading machine…</p>}>
         <Machine params={params} />
       </Suspense>
-    </main>
+    </Page>
   );
 }
 
@@ -48,32 +48,44 @@ async function Machine({ params }: { params: Promise<{ code: string }> }) {
   const last = machine.last_reading_at;
   return (
     <>
-      <header className="space-y-1">
-        <div className="flex flex-wrap items-center gap-3">
-          <h1 className="font-mono text-2xl font-semibold">{machine.code}</h1>
-          <span className="text-lg">{machine.name}</span>
-          <Badge variant="outline">{machine.line}</Badge>
-          <Badge variant="outline">{machine.type.replace("_", " ")}</Badge>
-        </div>
-        <p className="text-sm text-muted-foreground">
-          status <span className="font-medium text-foreground">{machine.status}</span>
-          {last ? (
-            <>
-              {" "}
-              · newest reading {new Date(last).toLocaleString()} (
-              {formatAge(now.getTime() - new Date(last).getTime())} ago)
-              {isStale(last, now) && (
-                <span className="font-medium text-amber-700 dark:text-amber-400">
-                  {" "}
-                  · not live: the charts show the last hours of DATA, ending then
-                </span>
-              )}
-            </>
-          ) : (
-            " · no readings yet"
-          )}
-        </p>
-      </header>
+      <PageHeader
+        eyebrow={`${machine.line} · ${machine.type.replace("_", " ")}`}
+        title={
+          <>
+            <span className="font-mono">{machine.code}</span>{" "}
+            <span className="font-normal text-muted-foreground">{machine.name}</span>
+          </>
+        }
+        description={
+          <>
+            Status <span className="font-medium text-foreground">{machine.status}</span>
+            {last ? (
+              <>
+                {" "}
+                · newest reading {new Date(last).toLocaleString()} (
+                {formatAge(now.getTime() - new Date(last).getTime())} ago)
+                {isStale(last, now) && (
+                  <span className="font-medium text-amber-700">
+                    {" "}
+                    · not live: the charts show the last hours of DATA, ending then
+                  </span>
+                )}
+              </>
+            ) : (
+              " · no readings yet"
+            )}
+          </>
+        }
+        actions={
+          <Link
+            href={`/incidents/new?machine=${machine.code}`}
+            className={cn(buttonVariants({ variant: "outline" }))}
+          >
+            <Search aria-hidden /> Investigate this machine
+          </Link>
+        }
+      />
+      <ActiveAlarmBanner code={machine.code} lastReadingAt={machine.last_reading_at} />
       <MachineView machine={machine} />
     </>
   );

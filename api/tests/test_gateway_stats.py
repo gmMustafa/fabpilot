@@ -137,6 +137,7 @@ async def test_endpoint_returns_the_window(client: AsyncClient) -> None:
     assert r.status_code == 200
     body = r.json()
     assert body["window_hours"] == 24
+    assert body["daily_request_limit"] == 50  # 7.6: what the quota bar compares against
     assert (body["totals"]["calls"], body["totals"]["requests"]) == (5, 7)
     assert [m["model"] for m in body["models"]] == [A, B]
 
