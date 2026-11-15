@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Suspense } from "react";
 
 import { ApiStatus } from "@/components/api-status";
@@ -13,6 +14,12 @@ export default function Home() {
           <h1 className="text-2xl font-semibold tracking-tight">FabPilot</h1>
           <p className="text-sm text-muted-foreground">AI maintenance copilot · plant overview</p>
         </div>
+        <Link
+          href="/incidents/new"
+          className="rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+        >
+          New investigation
+        </Link>
         <Suspense fallback={<span className="text-sm text-muted-foreground">Checking API…</span>}>
           <ApiStatus />
         </Suspense>

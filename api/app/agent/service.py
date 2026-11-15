@@ -154,6 +154,20 @@ class RunHandle:
                 return
 
 
+def report_data(state: AgentState) -> dict[str, Any]:
+    """The `report` event's data (7.4b): the answer as text AND the hypothesis as structure, so
+    the dashboard's evidence panel reads fields instead of parsing prose. ONE builder for the
+    live run and for a run rebuilt from the checkpoint, so the two can't drift apart."""
+    h = state.hypothesis
+    return {
+        "answer": state.answer,
+        "machine": state.machine,
+        "data_ends_at": state.data_ends_at.isoformat() if state.data_ends_at else None,
+        "hypothesis": h.model_dump(mode="json") if h else None,
+        "usage": usage(state),
+    }
+
+
 def usage(state: AgentState) -> dict[str, int]:
     return {
         "llm_calls": state.llm_requests,
@@ -235,7 +249,7 @@ class AgentService:
                             await emit(RunEvent("step", {"node": node, **payload}))
                 snapshot = await graph.aget_state(config)
             state = AgentState.model_validate(snapshot.values)
-            await emit(RunEvent("report", {"answer": state.answer, "usage": usage(state)}))
+            await emit(RunEvent("report", report_data(state)))
             if snapshot.interrupts:
                 await emit(RunEvent("approval_required", snapshot.interrupts[0].value))
                 status = RunStatus.PAUSED
@@ -291,7 +305,7 @@ class AgentService:
                     "its result comes from the saved state."
                 },
             ),
-            RunEvent("report", {"answer": state.answer, "usage": usage(state)}),
+            RunEvent("report", report_data(state)),
             *([RunEvent("approval_required", pending)] if pending else []),
             RunEvent("done", {"thread_id": thread_id, "status": status}),
         ]

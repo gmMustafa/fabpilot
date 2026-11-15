@@ -408,10 +408,7 @@ export interface components {
         ApprovalRequiredEventData: {
             /** Errors */
             errors: string[];
-            /** Work Order */
-            work_order: {
-                [key: string]: unknown;
-            };
+            work_order: components["schemas"]["WorkOrderDraftOut"];
         };
         /**
          * Bucket
@@ -419,6 +416,11 @@ export interface components {
          * @enum {string}
          */
         Bucket: "10s" | "1m" | "5m" | "15m" | "1h" | "6h" | "1d";
+        /**
+         * Category
+         * @enum {string}
+         */
+        Category: "machine_fault" | "sensor_fault" | "no_fault" | "unknown";
         /** CompleteIn */
         CompleteIn: {
             /** By */
@@ -490,6 +492,19 @@ export interface components {
             /** Detail */
             detail: string;
         };
+        /** EvidenceRef */
+        EvidenceRef: {
+            /**
+             * Id
+             * @description An id from the evidence list, e.g. 'F1', 'A2', 'D3'
+             */
+            id: string;
+            /**
+             * Statement
+             * @description What this evidence shows, in one sentence
+             */
+            statement: string;
+        };
         /** FollowUpStep */
         FollowUpStep: {
             /** Follow Ups */
@@ -544,6 +559,45 @@ export interface components {
              * @enum {string}
              */
             status: "ok" | "degraded";
+        };
+        /**
+         * Hypothesis
+         * @description The model's judgement, in a shape code can check (guardrails) before anyone reads it.
+         */
+        Hypothesis: {
+            /** Alternatives Ruled Out */
+            alternatives_ruled_out?: components["schemas"]["RuledOut"][];
+            category: components["schemas"]["Category"];
+            /**
+             * Citations
+             * @description The bracketed document references from the D lines, copied exactly, e.g. '[MAN-CMP-001 §5.2]'. Never an evidence id like 'F1' or 'D4'.
+             */
+            citations: string[];
+            /**
+             * Confidence
+             * @enum {string}
+             */
+            confidence: "low" | "medium" | "high";
+            /**
+             * Evidence
+             * @description The evidence ids this conclusion rests on
+             */
+            evidence: components["schemas"]["EvidenceRef"][];
+            /**
+             * Needs Action
+             * @description True if someone should do something on the machine
+             */
+            needs_action: boolean;
+            /**
+             * Next Check
+             * @description The single most useful next step for the engineer
+             */
+            next_check: string;
+            /**
+             * Root Cause
+             * @description One sentence; for unknown: what is missing to decide
+             */
+            root_cause: string;
         };
         /**
          * HypothesizeStep
@@ -799,10 +853,32 @@ export interface components {
         ReportEventData: {
             /** Answer */
             answer: string | null;
+            /**
+             * Data Ends At
+             * @default null
+             */
+            data_ends_at: string | null;
+            /** @default null */
+            hypothesis: components["schemas"]["Hypothesis"] | null;
+            /**
+             * Machine
+             * @default null
+             */
+            machine: string | null;
             /** Usage */
             usage: {
                 [key: string]: number;
             };
+        };
+        /** RuledOut */
+        RuledOut: {
+            /** Cause */
+            cause: string;
+            /**
+             * Why
+             * @description Which evidence rules it out
+             */
+            why: string;
         };
         /**
          * RunOut
@@ -812,6 +888,11 @@ export interface components {
         RunOut: {
             /** Answer */
             answer: string | null;
+            /** Data Ends At */
+            data_ends_at?: string | null;
+            hypothesis?: components["schemas"]["Hypothesis"] | null;
+            /** Machine */
+            machine?: string | null;
             /** Pending Approval */
             pending_approval: {
                 [key: string]: unknown;
@@ -975,6 +1056,45 @@ export interface components {
             /** Parts */
             parts?: components["schemas"]["WorkPart"][];
             priority: components["schemas"]["WorkOrderPriority"];
+            /**
+             * Sop Ref
+             * @description The SOP this order follows, e.g. 'SOP-CMP-005'
+             */
+            sop_ref: string;
+            /**
+             * Staff
+             * @description From the SOP's scope, e.g. '1 technician'
+             */
+            staff: string;
+            /** Title */
+            title: string;
+            /**
+             * Verification
+             * @description The SOP's acceptance criteria, in one or two lines
+             */
+            verification: string;
+        };
+        /**
+         * WorkOrderDraftOut
+         * @description The draft as the API PUBLISHES it (7.4b). Two audiences, two models: WorkOrderDraft hides
+         *     the code-filled fields from the LLM's schema (SkipJsonSchema, 5.5a), which also hid them
+         *     from the API contract, so the dashboard couldn't type them. Here they are ordinary fields.
+         */
+        WorkOrderDraftOut: {
+            /** Actions */
+            actions: components["schemas"]["WorkAction"][];
+            /**
+             * Duration
+             * @description From the SOP's scope, e.g. '30 min'
+             */
+            duration: string;
+            /** Parts */
+            parts?: components["schemas"]["WorkPart"][];
+            priority: components["schemas"]["WorkOrderPriority"];
+            /** Reviewer Warnings */
+            reviewer_warnings?: string[];
+            /** Safety Notes */
+            safety_notes?: string[];
             /**
              * Sop Ref
              * @description The SOP this order follows, e.g. 'SOP-CMP-005'

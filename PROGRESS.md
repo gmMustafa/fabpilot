@@ -50,7 +50,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done (verified, quiz answered, 
 - [x] 7.1 Setup: Next.js, Tailwind, shadcn/ui, API client
 - [x] 7.2 Plant overview
 - [x] 7.3 Machine page: charts + alarm timeline
-- [ ] 7.4 Incident page: streaming chat + evidence panel
+- [x] 7.4 Incident page: streaming chat + evidence panel
 - [ ] 7.5 Approval queue
 - [ ] 7.6 Gateway/cost page
 

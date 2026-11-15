@@ -185,9 +185,7 @@
             "type": "array"
           },
           "work_order": {
-            "additionalProperties": true,
-            "title": "Work Order",
-            "type": "object"
+            "$ref": "#/components/schemas/WorkOrderDraftOut"
           }
         },
         "required": [
@@ -209,6 +207,16 @@
           "1d"
         ],
         "title": "Bucket",
+        "type": "string"
+      },
+      "Category": {
+        "enum": [
+          "machine_fault",
+          "sensor_fault",
+          "no_fault",
+          "unknown"
+        ],
+        "title": "Category",
         "type": "string"
       },
       "CompleteIn": {
@@ -373,6 +381,26 @@
         "title": "ErrorOut",
         "type": "object"
       },
+      "EvidenceRef": {
+        "properties": {
+          "id": {
+            "description": "An id from the evidence list, e.g. 'F1', 'A2', 'D3'",
+            "title": "Id",
+            "type": "string"
+          },
+          "statement": {
+            "description": "What this evidence shows, in one sentence",
+            "title": "Statement",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "statement"
+        ],
+        "title": "EvidenceRef",
+        "type": "object"
+      },
       "FollowUpStep": {
         "properties": {
           "follow_ups": {
@@ -499,6 +527,72 @@
           "db"
         ],
         "title": "HealthResponse",
+        "type": "object"
+      },
+      "Hypothesis": {
+        "description": "The model's judgement, in a shape code can check (guardrails) before anyone reads it.",
+        "properties": {
+          "alternatives_ruled_out": {
+            "items": {
+              "$ref": "#/components/schemas/RuledOut"
+            },
+            "title": "Alternatives Ruled Out",
+            "type": "array"
+          },
+          "category": {
+            "$ref": "#/components/schemas/Category"
+          },
+          "citations": {
+            "description": "The bracketed document references from the D lines, copied exactly, e.g. '[MAN-CMP-001 §5.2]'. Never an evidence id like 'F1' or 'D4'.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Citations",
+            "type": "array"
+          },
+          "confidence": {
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "title": "Confidence",
+            "type": "string"
+          },
+          "evidence": {
+            "description": "The evidence ids this conclusion rests on",
+            "items": {
+              "$ref": "#/components/schemas/EvidenceRef"
+            },
+            "title": "Evidence",
+            "type": "array"
+          },
+          "needs_action": {
+            "description": "True if someone should do something on the machine",
+            "title": "Needs Action",
+            "type": "boolean"
+          },
+          "next_check": {
+            "description": "The single most useful next step for the engineer",
+            "title": "Next Check",
+            "type": "string"
+          },
+          "root_cause": {
+            "description": "One sentence; for unknown: what is missing to decide",
+            "title": "Root Cause",
+            "type": "string"
+          }
+        },
+        "required": [
+          "category",
+          "root_cause",
+          "confidence",
+          "evidence",
+          "citations",
+          "needs_action",
+          "next_check"
+        ],
+        "title": "Hypothesis",
         "type": "object"
       },
       "HypothesizeStep": {
@@ -1119,6 +1213,41 @@
             ],
             "title": "Answer"
           },
+          "data_ends_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Data Ends At"
+          },
+          "hypothesis": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Hypothesis"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "machine": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Machine"
+          },
           "usage": {
             "additionalProperties": {
               "type": "integer"
@@ -1134,6 +1263,25 @@
         "title": "ReportEventData",
         "type": "object"
       },
+      "RuledOut": {
+        "properties": {
+          "cause": {
+            "title": "Cause",
+            "type": "string"
+          },
+          "why": {
+            "description": "Which evidence rules it out",
+            "title": "Why",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cause",
+          "why"
+        ],
+        "title": "RuledOut",
+        "type": "object"
+      },
       "RunOut": {
         "description": "A run's current state (also after a restart: from the checkpointer). Use it to catch up\nafter a dropped stream.",
         "properties": {
@@ -1147,6 +1295,39 @@
               }
             ],
             "title": "Answer"
+          },
+          "data_ends_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data Ends At"
+          },
+          "hypothesis": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Hypothesis"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "machine": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Machine"
           },
           "pending_approval": {
             "anyOf": [
@@ -1676,6 +1857,77 @@
           "verification"
         ],
         "title": "WorkOrderDraft",
+        "type": "object"
+      },
+      "WorkOrderDraftOut": {
+        "description": "The draft as the API PUBLISHES it (7.4b). Two audiences, two models: WorkOrderDraft hides\nthe code-filled fields from the LLM's schema (SkipJsonSchema, 5.5a), which also hid them\nfrom the API contract, so the dashboard couldn't type them. Here they are ordinary fields.",
+        "properties": {
+          "actions": {
+            "items": {
+              "$ref": "#/components/schemas/WorkAction"
+            },
+            "title": "Actions",
+            "type": "array"
+          },
+          "duration": {
+            "description": "From the SOP's scope, e.g. '30 min'",
+            "title": "Duration",
+            "type": "string"
+          },
+          "parts": {
+            "items": {
+              "$ref": "#/components/schemas/WorkPart"
+            },
+            "title": "Parts",
+            "type": "array"
+          },
+          "priority": {
+            "$ref": "#/components/schemas/WorkOrderPriority"
+          },
+          "reviewer_warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reviewer Warnings",
+            "type": "array"
+          },
+          "safety_notes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Safety Notes",
+            "type": "array"
+          },
+          "sop_ref": {
+            "description": "The SOP this order follows, e.g. 'SOP-CMP-005'",
+            "title": "Sop Ref",
+            "type": "string"
+          },
+          "staff": {
+            "description": "From the SOP's scope, e.g. '1 technician'",
+            "title": "Staff",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "verification": {
+            "description": "The SOP's acceptance criteria, in one or two lines",
+            "title": "Verification",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "priority",
+          "sop_ref",
+          "actions",
+          "duration",
+          "staff",
+          "verification"
+        ],
+        "title": "WorkOrderDraftOut",
         "type": "object"
       },
       "WorkOrderPriority": {

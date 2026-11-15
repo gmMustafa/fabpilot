@@ -161,6 +161,7 @@ async def test_a_client_that_leaves_early_does_not_stop_the_run() -> None:
     body = run.json()
     assert body["status"] == "paused" and body["answer"].startswith("Most likely a FAULTY SENSOR")
     assert body["pending_approval"]["work_order"]["sop_ref"] == "SOP-GEN-004"
+    assert body["hypothesis"]["category"] == "sensor_fault" and body["machine"] == "M-08"
 
 
 async def test_unknown_run_is_404() -> None:

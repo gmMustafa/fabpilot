@@ -90,6 +90,10 @@ async def test_a_run_streams_its_steps_then_report_approval_and_done() -> None:
     report = next(e for e in events if e.event == "report")
     assert report.data["answer"].startswith("Most likely a FAULTY SENSOR")
     assert report.data["usage"] == {"llm_calls": 2, "provider_requests": 2, "tokens": 0}
+    # the structure behind the text (7.4b): the evidence panel reads fields, not prose
+    assert report.data["hypothesis"]["category"] == "sensor_fault"
+    assert report.data["hypothesis"]["evidence"][0]["id"] == "F1"
+    assert report.data["machine"] == "M-08" and report.data["data_ends_at"]
     approval = next(e for e in events if e.event == "approval_required")
     assert approval.data["work_order"]["sop_ref"] == "SOP-GEN-004"
 

@@ -9,6 +9,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
+from app.agent.state import Hypothesis, WorkOrderDraft
 from app.db.models import AlarmSeverity, MachineStatus, MachineType, SensorKind
 
 
@@ -152,6 +153,9 @@ class RunOut(BaseModel):
     thread_id: str
     status: Literal["running", "paused", "done", "failed"]
     answer: str | None
+    machine: str | None = None
+    data_ends_at: datetime | None = None
+    hypothesis: Hypothesis | None = None  # structured diagnosis (7.4b); None if none passed
     pending_approval: dict[str, Any] | None  # the draft waiting for a decision (6.2)
     usage: dict[str, int]
 
@@ -262,12 +266,24 @@ StepEventData = Annotated[
 
 
 class ReportEventData(BaseModel):
-    answer: str | None
+    answer: str | None  # the full report as text (what the CLI prints)
+    machine: str | None = None
+    data_ends_at: str | None = None  # the newest reading the diagnosis is based on (ISO)
+    hypothesis: Hypothesis | None = None  # the same diagnosis as STRUCTURE (evidence panel)
     usage: dict[str, int]
 
 
+class WorkOrderDraftOut(WorkOrderDraft):
+    """The draft as the API PUBLISHES it (7.4b). Two audiences, two models: WorkOrderDraft hides
+    the code-filled fields from the LLM's schema (SkipJsonSchema, 5.5a), which also hid them
+    from the API contract, so the dashboard couldn't type them. Here they are ordinary fields."""
+
+    safety_notes: list[str] = Field(default_factory=list)  # SOP section 2, verbatim (by code)
+    reviewer_warnings: list[str] = Field(default_factory=list)  # e.g. steps left out
+
+
 class ApprovalRequiredEventData(BaseModel):
-    work_order: dict[str, Any]  # a WorkOrderDraft as JSON (see the WorkOrderDraft schema)
+    work_order: WorkOrderDraftOut  # the draft waiting for a decision, TYPED for the dashboard
     errors: list[str]  # why the previous decision was sent back (empty the first time)
 
 

@@ -82,6 +82,9 @@ async def get_run(thread_id: str, agent: Agent) -> RunOut:
         thread_id=thread_id,
         status=status,
         answer=state.answer,
+        machine=state.machine,
+        data_ends_at=state.data_ends_at,
+        hypothesis=state.hypothesis,
         pending_approval=pending,
         usage=usage(state),
     )
