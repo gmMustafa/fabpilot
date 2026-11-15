@@ -58,7 +58,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done (verified, quiz answered, 
 - [x] 8.1 Scenario format (YAML) — evals/ package, 3 example scenarios, checked in CI
 - [x] 8.2 ~50 scenarios — 48: 39 generated (fault × type × difficulty, drift, controls) + 9 hand-written (traps)
 - [x] 8.3 Metrics — eval DB + dry run (8.3a), agent runs with resume (8.3b), grading + report (8.3c); smoke set 7/7 correct
-- [ ] 8.4 LLM-as-judge
+- [x] 8.4 LLM-as-judge — root cause only, calibrated on 14 human-labelled cases (100 % agreement, dots-3-note-preview)
 - [ ] 8.5 Evals in GitHub Actions + README table
 - [ ] 8.6 Compare 2–3 free models
 

@@ -44,6 +44,10 @@ class Settings(BaseSettings):
     # Fallback order, best first. Comma-separated in .env; NoDecode stops pydantic-settings from
     # trying to parse it as JSON (its default for list fields).
     openrouter_models: Annotated[list[str], NoDecode] = []
+    # The eval JUDGE's own fallback list (8.4), ideally another model family than the agent's:
+    # a judge of the same family prefers its own style (self-preference). Empty = the agent's
+    # list, and the eval report warns about it.
+    judge_models: Annotated[list[str], NoDecode] = []
     llm_connect_timeout: float = 10.0  # is the server reachable at all?
     llm_timeout_seconds: float = 60.0  # read timeout: is the model still producing output?
     llm_max_retries: int = 1  # same-model retries (measured 5.2b: 2 starved the 3rd model)
@@ -70,7 +74,7 @@ class Settings(BaseSettings):
     # Never "*" in production: any website could then read our API from a visitor's browser.
     cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:3000"]
 
-    @field_validator("openrouter_models", "cors_origins", mode="before")
+    @field_validator("openrouter_models", "judge_models", "cors_origins", mode="before")
     @classmethod
     def _split_comma_list(cls, value: object) -> object:
         if isinstance(value, str):

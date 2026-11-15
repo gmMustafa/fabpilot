@@ -15,7 +15,7 @@ from collections import Counter
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
-from agent_evals import results
+from agent_evals import judge, results
 from agent_evals.evaldb import eval_plant
 from agent_evals.grade import DIFFICULTIES, Grade, grade
 from agent_evals.scenario import SCENARIOS, Scenario, load_scenarios
@@ -78,7 +78,51 @@ def _cost(rs: list[results.Result]) -> list[str]:
     return lines
 
 
-def render(name: str, rs: list[results.Result], scenarios: dict[str, Scenario]) -> str:
+def _judge_section(
+    grades: list[Grade], judged: list[judge.Judged], self_judging: bool
+) -> list[str]:
+    """Keyword vs judge, side by side. The judge never silently replaces the keywords: where
+    they disagree, a person looks (and that is where both get better)."""
+    now = {j.scenario_id: j for j in judged if j.prompt_version == judge.PROMPT_VERSION}
+    pairs = [(g, now[g.scenario_id]) for g in grades if g.scenario_id in now]
+    ok = [(g, j) for g, j in pairs if j.verdict is not None]
+    if not pairs:
+        return []
+    verdicts = Counter(j.verdict for _, j in ok)
+    agree = sum((g.verdict == "correct") == (j.verdict == "correct") for g, j in ok)
+    out = [
+        "",
+        "## Judge (LLM, root cause only)",
+        "",
+        f"Prompt version {judge.PROMPT_VERSION}; judged only answers with the right fault "
+        "category. " + ", ".join(f"{v} {n}" for v, n in sorted(verdicts.items())) + ".",
+        "",
+        f"- judge says correct: {pct(verdicts['correct'], len(ok))}",
+        f"- agrees with the keyword grade: {pct(agree, len(ok))}",
+    ]
+    if failed := len(pairs) - len(ok):
+        out.append(f"- judge calls failed: {failed} (judged again next time)")
+    if self_judging:
+        out.append(
+            "- ! JUDGE_MODELS was empty: the judge used the agent's own models "
+            "(self-preference: it may favour answers in its own style)"
+        )
+    differ = [(g, j) for g, j in ok if (g.verdict == "correct") != (j.verdict == "correct")]
+    if differ:
+        out += ["", "| scenario | keywords | judge | judge's reason |", "|---|---|---|---|"]
+        out += [
+            f"| {g.scenario_id} | {g.verdict} | {j.verdict} | {j.reason[:140]} |" for g, j in differ
+        ]
+    return out
+
+
+def render(
+    name: str,
+    rs: list[results.Result],
+    scenarios: dict[str, Scenario],
+    judged: list[judge.Judged] | None = None,
+    self_judging: bool = False,
+) -> str:
     """The whole report as markdown. `rs`: the newest result per scenario."""
     known = [r for r in rs if r.scenario_id in scenarios]
     grades = [grade(r, scenarios[r.scenario_id]) for r in known]
@@ -156,6 +200,7 @@ def render(name: str, rs: list[results.Result], scenarios: dict[str, Scenario]) 
         "",
         *_cost(known),
     ]
+    out += _judge_section(done, judged or [], self_judging)
     wrong = [g for g in done if g.verdict == "wrong"]
     if wrong:
         out += ["", "## Wrong answers", "", "| scenario | expected | said | root cause |"]
@@ -187,7 +232,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     doc_ids = [d.meta.doc_id for d in load_corpus(settings.docs_dir)]
     scenarios = {s.id: s for s in load_scenarios(SCENARIOS, plant, doc_ids)}
     newest = list(results.latest(results.read(args.results_file)).values())
-    text = render(args.results_file.stem, newest, scenarios)
+    judged = judge.read_judged(judge.sidecar(args.results_file))
+    text = render(
+        args.results_file.stem, newest, scenarios, judged, self_judging=not settings.judge_models
+    )
     print(text)
     out = args.results_file.with_suffix(".md")
     out.write_text(text, encoding="utf-8", newline="\n")
