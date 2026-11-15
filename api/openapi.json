@@ -1,6 +1,125 @@
 {
   "components": {
     "schemas": {
+      "AlarmLog": {
+        "properties": {
+          "alarms": {
+            "items": {
+              "$ref": "#/components/schemas/AlarmOut"
+            },
+            "title": "Alarms",
+            "type": "array"
+          },
+          "coverage_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Coverage Note"
+          },
+          "data_ends_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data Ends At"
+          },
+          "end": {
+            "format": "date-time",
+            "title": "End",
+            "type": "string"
+          },
+          "start": {
+            "format": "date-time",
+            "title": "Start",
+            "type": "string"
+          },
+          "total_count": {
+            "title": "Total Count",
+            "type": "integer"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "start",
+          "end",
+          "total_count",
+          "truncated",
+          "alarms"
+        ],
+        "title": "AlarmLog",
+        "type": "object"
+      },
+      "AlarmOut": {
+        "properties": {
+          "cleared_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cleared At"
+          },
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "machine": {
+            "title": "Machine",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "sensor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sensor"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/AlarmSeverity"
+          },
+          "time": {
+            "format": "date-time",
+            "title": "Time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "time",
+          "cleared_at",
+          "machine",
+          "sensor",
+          "code",
+          "severity",
+          "message"
+        ],
+        "title": "AlarmOut",
+        "type": "object"
+      },
       "AlarmSeverity": {
         "enum": [
           "info",
@@ -2077,6 +2196,135 @@
           }
         },
         "summary": "Get Machine",
+        "tags": [
+          "machines"
+        ]
+      }
+    },
+    "/machines/{code}/alarms": {
+      "get": {
+        "description": "One machine's alarms in [start, end), newest first (7.3: the machine page's timeline).\n`truncated` + `total_count` say when the list is cut: then the EARLIEST alarms (when the\nproblem started) are the ones missing.",
+        "operationId": "getAlarms",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "code",
+            "required": true,
+            "schema": {
+              "title": "Code",
+              "type": "string"
+            }
+          },
+          {
+            "description": "ISO 8601 with timezone",
+            "in": "query",
+            "name": "start",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "ISO 8601 with timezone",
+              "title": "Start"
+            }
+          },
+          {
+            "description": "ISO 8601 with timezone; default now",
+            "in": "query",
+            "name": "end",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "ISO 8601 with timezone; default now",
+              "title": "End"
+            }
+          },
+          {
+            "description": "At most this many, newest first",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "description": "At most this many, newest first",
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "info, warning or critical",
+            "in": "query",
+            "name": "min_severity",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "info, warning or critical",
+              "title": "Min Severity"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlarmLog"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "No such machine"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestOut"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ErrorOut"
+                    }
+                  ],
+                  "title": "Response 422 Getalarms"
+                }
+              }
+            },
+            "description": "Malformed request, or an invalid range / limit"
+          }
+        },
+        "summary": "Get Alarms",
         "tags": [
           "machines"
         ]

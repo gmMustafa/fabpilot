@@ -14,6 +14,7 @@ from app import plant_data
 from app.db.deps import get_engine
 from app.plant_data import Bucket, InvalidQueryError, NotFoundError
 from app.schemas import (
+    AlarmLog,
     ErrorOut,
     InvalidRequestOut,
     MachineDetail,
@@ -73,5 +74,34 @@ async def get_readings(
     try:
         async with engine.connect() as conn:
             return await plant_data.get_readings(conn, code, sensor, start, end, bucket)
+    except (NotFoundError, InvalidQueryError) as e:
+        raise _http(e) from e
+
+
+@router.get(
+    "/{code}/alarms",
+    response_model=AlarmLog,
+    responses={
+        404: error("No such machine"),
+        422: error("Malformed request, or an invalid range / limit", InvalidRequestOut | ErrorOut),
+    },
+)
+async def get_alarms(
+    code: str,
+    engine: Engine,
+    start: Annotated[datetime | None, Query(description="ISO 8601 with timezone")] = None,
+    end: Annotated[
+        datetime | None, Query(description="ISO 8601 with timezone; default now")
+    ] = None,
+    limit: Annotated[int, Query(description="At most this many, newest first")] = 100,
+    min_severity: Annotated[str | None, Query(description="info, warning or critical")] = None,
+) -> AlarmLog:
+    """One machine's alarms in [start, end), newest first (7.3: the machine page's timeline).
+    `truncated` + `total_count` say when the list is cut: then the EARLIEST alarms (when the
+    problem started) are the ones missing."""
+    try:
+        query = plant_data.validate_alarm_query(start, end, limit, min_severity)
+        async with engine.connect() as conn:
+            return await plant_data.get_alarm_log(conn, code, query)
     except (NotFoundError, InvalidQueryError) as e:
         raise _http(e) from e

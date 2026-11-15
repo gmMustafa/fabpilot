@@ -17,6 +17,7 @@
  * would be the same lie as "running" without "(as last reported)".
  */
 import { useQuery } from "@tanstack/react-query";
+import Link from "next/link";
 import {
   ArrowRightLeft,
   CircleCheck,
@@ -138,70 +139,78 @@ function Tile({ tile, now, index }: { tile: MachineTile; now: Date; index: numbe
   const StateIcon = tone.icon;
   const live = !stale && tile.status === "running";
   return (
-    <Card
-      className={cn(
-        "relative gap-2 border-2 py-4 transition-colors duration-700",
-        // fade + slide in, one tile after the other; fill-mode-both keeps each tile invisible
-        // until its own delay has passed (otherwise it would flash, then animate)
-        "motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2",
-        "motion-safe:animation-duration-500 motion-safe:fill-mode-both",
-        tone.className,
-      )}
-      style={{ animationDelay: `${index * 40}ms` }}
+    // The whole tile links to the machine page (7.3); focus-visible: keyboard users see where
+    // they are.
+    <Link
+      href={`/machines/${tile.code}`}
+      className="rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      aria-label={`${tile.code} ${tile.name}: ${tone.label}`}
     >
-      {state === "critical" && (
-        <span className="absolute -top-1 -right-1">
-          <Ping className="bg-red-500" />
-        </span>
-      )}
-      <CardHeader className="px-4">
-        <div className="flex items-start justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <TypeIcon className="size-5 text-muted-foreground" aria-hidden />
-            <CardTitle className="font-mono text-base">{tile.code}</CardTitle>
-          </div>
-          <Badge
-            variant={state === "critical" || state === "down" ? "destructive" : "outline"}
-            className="gap-1"
-          >
-            <StateIcon className={cn("size-3.5", tone.iconClassName)} aria-hidden />
-            {tone.label}
-          </Badge>
-        </div>
-        <p className="text-sm text-muted-foreground">
-          {tile.name} · {tile.type.replace("_", " ")}
-        </p>
-      </CardHeader>
-      <CardContent className="space-y-1 px-4 text-sm">
-        <p className="flex items-center gap-2">
-          {live && <Ping className="bg-emerald-500" />}
-          <span>
-            status <span className="font-medium">{tile.status}</span>
-            {stale && <span className="text-muted-foreground"> (as last reported)</span>}
+      <Card
+        className={cn(
+          "relative h-full gap-2 border-2 py-4 transition-colors duration-700 hover:shadow-md",
+          // fade + slide in, one tile after the other; fill-mode-both keeps each tile invisible
+          // until its own delay has passed (otherwise it would flash, then animate)
+          "motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2",
+          "motion-safe:animation-duration-500 motion-safe:fill-mode-both",
+          tone.className,
+        )}
+        style={{ animationDelay: `${index * 40}ms` }}
+      >
+        {state === "critical" && (
+          <span className="absolute -top-1 -right-1">
+            <Ping className="bg-red-500" />
           </span>
-        </p>
-        {tile.active_alarms > 0 && (
-          <p className="flex items-center gap-1.5">
-            <StateIcon className={cn("size-4 shrink-0", tone.iconClassName)} aria-hidden />
+        )}
+        <CardHeader className="px-4">
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <TypeIcon className="size-5 text-muted-foreground" aria-hidden />
+              <CardTitle className="font-mono text-base">{tile.code}</CardTitle>
+            </div>
+            <Badge
+              variant={state === "critical" || state === "down" ? "destructive" : "outline"}
+              className="gap-1"
+            >
+              <StateIcon className={cn("size-3.5", tone.iconClassName)} aria-hidden />
+              {tone.label}
+            </Badge>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            {tile.name} · {tile.type.replace("_", " ")}
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-1 px-4 text-sm">
+          <p className="flex items-center gap-2">
+            {live && <Ping className="bg-emerald-500" />}
             <span>
-              {tile.active_alarms} active alarm{tile.active_alarms > 1 ? "s" : ""} · newest{" "}
-              <span className="font-mono">{tile.latest_alarm}</span>
+              status <span className="font-medium">{tile.status}</span>
+              {stale && <span className="text-muted-foreground"> (as last reported)</span>}
             </span>
           </p>
-        )}
-        <p
-          className={cn(
-            "text-muted-foreground",
-            stale && "font-medium text-amber-700 dark:text-amber-400",
+          {tile.active_alarms > 0 && (
+            <p className="flex items-center gap-1.5">
+              <StateIcon className={cn("size-4 shrink-0", tone.iconClassName)} aria-hidden />
+              <span>
+                {tile.active_alarms} active alarm{tile.active_alarms > 1 ? "s" : ""} · newest{" "}
+                <span className="font-mono">{tile.latest_alarm}</span>
+              </span>
+            </p>
           )}
-        >
-          {tile.last_reading_at
-            ? `last reading ${formatAge(now.getTime() - new Date(tile.last_reading_at).getTime())} ago`
-            : "no readings yet"}
-          {stale && tile.last_reading_at && " · not live"}
-        </p>
-      </CardContent>
-    </Card>
+          <p
+            className={cn(
+              "text-muted-foreground",
+              stale && "font-medium text-amber-700 dark:text-amber-400",
+            )}
+          >
+            {tile.last_reading_at
+              ? `last reading ${formatAge(now.getTime() - new Date(tile.last_reading_at).getTime())} ago`
+              : "no readings yet"}
+            {stale && tile.last_reading_at && " · not live"}
+          </p>
+        </CardContent>
+      </Card>
+    </Link>
   );
 }
 

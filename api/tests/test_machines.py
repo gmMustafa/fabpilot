@@ -166,3 +166,71 @@ async def test_bad_requests_are_422_with_a_clear_message(
 async def test_unknown_bucket_size_is_rejected(client: AsyncClient) -> None:
     status, _ = await _readings(client, bucket="7m")
     assert status == 422  # validated by FastAPI from the Bucket enum, before any SQL runs
+
+
+# ------------------------------------------------------------------ alarms (7.3)
+
+
+async def _add_alarms(engine: AsyncEngine, n: int) -> None:
+    """n alarms on M-01's spindle_bearing_temp, one per minute from 08:00; the first cleared."""
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                "INSERT INTO alarms"
+                " (machine_id, sensor_id, time, code, severity, message, cleared_at)"
+                " SELECT m.id, s.id, :t0 + (i * interval '1 minute'), 'TEMP-HIGH', 'warning',"
+                "        'spindle bearing hot',"
+                "        CASE WHEN i = 0 THEN :t0 + interval '30 seconds' END"
+                " FROM machines m JOIN sensors s ON s.machine_id = m.id,"
+                "      generate_series(0, :n - 1) i"
+                " WHERE m.code = 'M-01' AND s.name = 'spindle_bearing_temp'"
+            ),
+            {"t0": T0, "n": n},
+        )
+
+
+async def test_alarms_newest_first_with_sensor_and_cleared(
+    engine: AsyncEngine, client: AsyncClient
+) -> None:
+    await _add_alarms(engine, 3)
+    r = await client.get(
+        "/machines/M-01/alarms",
+        params={"start": "2026-11-16T08:00:00Z", "end": "2026-11-16T10:00:00Z"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert [a["time"] for a in body["alarms"]] == [
+        "2026-11-16T08:02:00Z",
+        "2026-11-16T08:01:00Z",
+        "2026-11-16T08:00:00Z",
+    ]
+    assert body["alarms"][0]["sensor"] == "spindle_bearing_temp"
+    assert body["alarms"][0]["cleared_at"] is None  # still active
+    assert body["alarms"][-1]["cleared_at"] == "2026-11-16T08:00:30Z"
+    assert (body["total_count"], body["truncated"]) == (3, False)
+
+
+async def test_a_cut_alarm_list_says_so(engine: AsyncEngine, client: AsyncClient) -> None:
+    """Newest first + a limit silently drops the EARLIEST alarms: when the problem started."""
+    await _add_alarms(engine, 5)
+    body = (
+        await client.get(
+            "/machines/M-01/alarms",
+            params={"start": "2026-11-16T08:00:00Z", "end": "2026-11-16T10:00:00Z", "limit": 2},
+        )
+    ).json()
+    assert (len(body["alarms"]), body["total_count"], body["truncated"]) == (2, 5, True)
+
+
+@pytest.mark.parametrize(
+    ("code", "params", "status"),
+    [
+        ("M-99", {}, 404),
+        ("M-01", {"limit": "0"}, 422),
+        ("M-01", {"start": "2026-10-01T00:00:00Z", "end": "2026-11-16T00:00:00Z"}, 422),
+    ],
+)
+async def test_alarm_errors(
+    client: AsyncClient, code: str, params: dict[str, str], status: int
+) -> None:
+    assert (await client.get(f"/machines/{code}/alarms", params=params)).status_code == status

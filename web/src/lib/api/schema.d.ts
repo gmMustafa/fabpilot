@@ -145,6 +145,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/machines/{code}/alarms": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Alarms
+         * @description One machine's alarms in [start, end), newest first (7.3: the machine page's timeline).
+         *     `truncated` + `total_count` say when the list is cut: then the EARLIEST alarms (when the
+         *     problem started) are the ones missing.
+         */
+        get: operations["getAlarms"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/machines/{code}/readings": {
         parameters: {
             query?: never;
@@ -291,6 +313,48 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AlarmLog */
+        AlarmLog: {
+            /** Alarms */
+            alarms: components["schemas"]["AlarmOut"][];
+            /** Coverage Note */
+            coverage_note?: string | null;
+            /** Data Ends At */
+            data_ends_at?: string | null;
+            /**
+             * End
+             * Format: date-time
+             */
+            end: string;
+            /**
+             * Start
+             * Format: date-time
+             */
+            start: string;
+            /** Total Count */
+            total_count: number;
+            /** Truncated */
+            truncated: boolean;
+        };
+        /** AlarmOut */
+        AlarmOut: {
+            /** Cleared At */
+            cleared_at: string | null;
+            /** Code */
+            code: string;
+            /** Machine */
+            machine: string;
+            /** Message */
+            message: string;
+            /** Sensor */
+            sensor: string | null;
+            severity: components["schemas"]["AlarmSeverity"];
+            /**
+             * Time
+             * Format: date-time
+             */
+            time: string;
+        };
         /**
          * AlarmSeverity
          * @enum {string}
@@ -1201,6 +1265,55 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getAlarms: {
+        parameters: {
+            query?: {
+                /** @description ISO 8601 with timezone */
+                start?: string | null;
+                /** @description ISO 8601 with timezone; default now */
+                end?: string | null;
+                /** @description At most this many, newest first */
+                limit?: number;
+                /** @description info, warning or critical */
+                min_severity?: string | null;
+            };
+            header?: never;
+            path: {
+                code: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlarmLog"];
+                };
+            };
+            /** @description No such machine */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description Malformed request, or an invalid range / limit */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvalidRequestOut"] | components["schemas"]["ErrorOut"];
                 };
             };
         };
