@@ -9,7 +9,7 @@ setup:
 question: Coolant alarm on M-03. Can we finish the job, or do we stop?
 expect:
   category: [machine_fault]
-  root_cause_keywords: [[coolant], [pump, flow, pressure]]
+  root_cause_keywords: [[coolant], [pump]]
   must_cite: [MAN-CNC-001, SOP-CNC-003]
   work_order: required
 tags: [generated, advanced]

@@ -9,7 +9,7 @@ setup:
 question: M-01 spindle temperature shot up in the middle of a job. What happened?
 expect:
   category: [machine_fault]
-  root_cause_keywords: [[coolant], [pump, flow, pressure]]
+  root_cause_keywords: [[coolant], [pump]]
   must_cite: [MAN-CNC-001, SOP-CNC-003]
   work_order: required
 tags: [smoke, generated, typical]

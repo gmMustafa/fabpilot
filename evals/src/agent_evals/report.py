@@ -100,6 +100,17 @@ def _judge_section(
         f"- judge says correct: {pct(verdicts['correct'], len(ok))}",
         f"- agrees with the keyword grade: {pct(agree, len(ok))}",
     ]
+    trusted = judge.calibrated_models()
+    for model, n in sorted(Counter(j.judge_model or "" for _, j in ok).items()):
+        if not model:
+            out.append(f"- ! {n} verdict(s) don't record their judge model (judged before 8.4b)")
+        elif model not in trusted:
+            out.append(
+                f"- ! {n} verdict(s) from {model}: NOT calibrated under this prompt version "
+                "(run --calibrate before trusting them)"
+            )
+        else:
+            out.append(f"- {n} verdict(s) from {model} (calibrated)")
     if failed := len(pairs) - len(ok):
         out.append(f"- judge calls failed: {failed} (judged again next time)")
     if self_judging:

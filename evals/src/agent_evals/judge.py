@@ -41,12 +41,16 @@ from app.config import Settings
 from app.db.models import FaultType
 from app.db.session import create_engine
 from app.gateway.factory import build_gateway
-from app.gateway.structured import ChatModel, chat_structured
+from app.gateway.structured import ChatModel, Spend, chat_structured
 from app.gateway.types import ChatMessage
 from app.rag.corpus import load_corpus
 from app.runtime import run
 
 CALIBRATION = Path(__file__).resolve().parents[2] / "judge_calibration.yaml"
+# Which judge models were calibrated, under which prompt version, with what agreement. Written by
+# --calibrate, committed: the report flags verdicts from a model that was never calibrated (a
+# fallback model answering on a day the first one is rate-limited).
+CALIBRATED = CALIBRATION.with_name("judge_calibrated.json")
 JudgeLabel = Literal["correct", "symptom_only", "hedged", "wrong"]
 FAULT_CATEGORIES = {"machine_fault", "sensor_fault"}
 
@@ -110,6 +114,7 @@ class Judged(BaseModel):
     prompt_version: str
     verdict: JudgeLabel | None = None  # None: the judge call failed (see error)
     reason: str = ""
+    judge_model: str | None = None  # who gave the verdict (None: not recorded, before 8.4b)
     error: str | None = None
 
 
@@ -138,11 +143,20 @@ def messages(reference: str, root_cause: str) -> list[ChatMessage]:
     ]
 
 
-async def judge_text(gateway: ChatModel, reference: str, root_cause: str) -> JudgeVerdict:
+async def judge_text(
+    gateway: ChatModel, reference: str, root_cause: str
+) -> tuple[JudgeVerdict, str]:
+    """(the verdict, the model that gave it: after fallbacks, not necessarily the first)."""
+    spend = Spend()
     out = await chat_structured(
-        gateway, messages(reference, root_cause), JudgeVerdict, purpose="eval.judge", max_tokens=400
+        gateway,
+        messages(reference, root_cause),
+        JudgeVerdict,
+        purpose="eval.judge",
+        max_tokens=400,
+        spend=spend,
     )
-    return out.value
+    return out.value, spend.models[-1]
 
 
 # ---------------------------------------------------------------- a run's sidecar file
@@ -186,13 +200,16 @@ async def judge_run(
         assert s.setup.fault is not None  # needs_judge checked it
         root_cause = str((r.hypothesis or {}).get("root_cause", ""))
         try:
-            v = await judge_text(gateway, reference_for(s.setup.fault, s.setup.sensor), root_cause)
+            v, model = await judge_text(
+                gateway, reference_for(s.setup.fault, s.setup.sensor), root_cause
+            )
             j = Judged(
                 scenario_id=r.scenario_id,
                 thread_id=r.thread_id,
                 prompt_version=PROMPT_VERSION,
                 verdict=v.verdict,
                 reason=v.reason,
+                judge_model=model,
             )
         except Exception as e:  # a failed judge call is recorded, never a crash of the run
             j = Judged(
@@ -234,18 +251,63 @@ def agreement(pairs: Sequence[tuple[str, str]]) -> tuple[float, Counter[tuple[st
     return (agree / len(pairs) if pairs else 0.0), confusion
 
 
-async def calibrate(gateway: ChatModel, cases: list[Case]) -> list[tuple[Case, str]]:
-    out: list[tuple[Case, str]] = []
+Calibrated = tuple[Case, str, str | None]  # (case, the judge's verdict or error, its model)
+
+
+async def calibrate(gateway: ChatModel, cases: list[Case]) -> list[Calibrated]:
+    out: list[Calibrated] = []
     for c in cases:
         v: str  # a verdict, or the error when the judge call failed
+        model: str | None = None
         try:
-            v = (await judge_text(gateway, reference_for(c.fault, c.sensor), c.root_cause)).verdict
+            verdict, model = await judge_text(
+                gateway, reference_for(c.fault, c.sensor), c.root_cause
+            )
+            v = verdict.verdict
         except Exception as e:
             v = f"ERROR {type(e).__name__}"
-        out.append((c, v))
+        out.append((c, v, model))
         mark = "ok " if v == c.human else "XX "
-        print(f"  {mark}{c.id:<22} human {c.human:<13} judge {v}", flush=True)
+        print(f"  {mark}{c.id:<22} human {c.human:<13} judge {v:<13} ({model})", flush=True)
     return out
+
+
+def read_calibrated(path: Path | None = None) -> dict[str, dict[str, dict[str, Any]]]:
+    """prompt version -> judge model -> {"cases", "agreement"}. `path` None = CALIBRATED, looked
+    up at CALL time: a default argument is bound once, at definition, so tests couldn't redirect
+    it."""
+    path = path or CALIBRATED
+    if not path.exists():
+        return {}
+    data: dict[str, dict[str, dict[str, Any]]] = json.loads(path.read_text(encoding="utf-8"))
+    return data
+
+
+def calibrated_models(version: str | None = None, path: Path | None = None) -> set[str]:
+    """Judge models calibrated under this prompt version (their verdicts may be trusted)."""
+    return set(read_calibrated(path).get(version or PROMPT_VERSION, {}))
+
+
+def record_calibration(
+    judged: Sequence[Calibrated], version: str | None = None, path: Path | None = None
+) -> dict[str, dict[str, Any]]:
+    """Agreement PER MODEL (a fallback may have answered some cases), merged into the file.
+    Only a model that answered EVERY case counts as calibrated: a partial run says too little."""
+    by_model: dict[str, list[tuple[str, str]]] = {}
+    for case, verdict, model in judged:
+        if model is not None:
+            by_model.setdefault(model, []).append((case.human, verdict))
+    entries = {
+        model: {"cases": len(pairs), "agreement": round(agreement(pairs)[0], 3)}
+        for model, pairs in by_model.items()
+        if len(pairs) == len(judged)
+    }
+    data = read_calibrated(path)
+    data.setdefault(version or PROMPT_VERSION, {}).update(entries)
+    (path or CALIBRATED).write_text(
+        json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n"
+    )
+    return entries
 
 
 # ---------------------------------------------------------------- CLI
@@ -265,11 +327,16 @@ async def _with_gateway(settings: Settings, job: str, args: argparse.Namespace) 
         stack.push_async_callback(gateway.provider.aclose)
         if job == "calibrate":
             judged = await calibrate(gateway, load_cases())
-            rate, confusion = agreement([(c.human, v) for c, v in judged])
+            rate, confusion = agreement([(c.human, v) for c, v, _ in judged])
             print(f"\nagreement with the human labels: {rate:.0%} over {len(judged)} cases")
             for (human, judge), n in sorted(confusion.items()):
                 if human != judge:
                     print(f"  human {human} -> judge {judge}: {n}")
+            entries = record_calibration(judged)
+            for model, e in sorted(entries.items()):
+                print(f"calibrated {model}: {e['agreement']:.0%} over {e['cases']} cases")
+            if not entries:
+                print("! no model answered every case: none recorded as calibrated")
         else:
             plant = eval_plant(settings)
             doc_ids = [d.meta.doc_id for d in load_corpus(settings.docs_dir)]

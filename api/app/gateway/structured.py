@@ -12,7 +12,7 @@ validation + ONE repair round works with any model, and every attempt goes throu
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
 from pydantic import BaseModel, ValidationError
@@ -33,6 +33,9 @@ class ChatResult(Protocol):
     @property
     def tokens(self) -> int: ...
 
+    @property
+    def model(self) -> str: ...  # the model that answered (after fallbacks)
+
 
 @dataclass
 class Spend:
@@ -44,9 +47,13 @@ class Spend:
     calls: int = 0
     attempts: int = 0
     tokens: int = 0
+    # who answered each successful call, in order (8.4: an eval judge's verdict must say which
+    # model gave it; a fallback model may never have been calibrated)
+    models: list[str] = field(default_factory=list)
 
     def add(self, result: ChatResult) -> None:
         self.calls += 1
+        self.models.append(result.model)
         self.attempts += result.provider_requests
         self.tokens += result.tokens
 

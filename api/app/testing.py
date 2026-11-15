@@ -115,6 +115,7 @@ class ScriptedChat:
         text: str
         provider_requests: int = 1
         tokens: int = 0
+        model: str = "scripted"
 
     def __init__(self, *answers: "str | Exception | ScriptedChat.Reply") -> None:
         self._answers = list(answers)

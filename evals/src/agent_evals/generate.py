@@ -65,7 +65,9 @@ FAULT_KNOWLEDGE: dict[FaultType, FaultKnowledge] = {
         ],
     ),
     FaultType.COOLANT_PUMP_FAILURE: FaultKnowledge(
-        keywords=[["coolant"], ["pump", "flow", "pressure"]],
+        # "pump", not "pressure": "coolant pressure collapsed" is the SYMPTOM; the answer must
+        # name what failed (8.3c review). The judge (8.4) checks the same, in any words.
+        keywords=[["coolant"], ["pump"]],
         cite={MachineType.CNC_MILL: ["MAN-CNC-001", "SOP-CNC-003"]},
         questions=[
             "{machine} spindle temperature shot up in the middle of a job. What happened?",

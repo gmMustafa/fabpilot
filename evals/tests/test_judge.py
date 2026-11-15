@@ -144,3 +144,56 @@ def test_report_shows_where_judge_and_keywords_disagree(suite: dict[str, Scenari
     assert "agrees with the keyword grade: 0/1 (0 %)" in text
     assert f"| {BEARING_ID} |" in text and "only describes vibration" in text
     assert "self-preference" in text
+
+
+# ---------------------------------------------------------------- which model judged (8.4b)
+
+
+def test_each_verdict_records_the_model_that_gave_it(
+    tmp_path: Path, suite: dict[str, Scenario]
+) -> None:
+    out = tmp_path / "run.judge.jsonl"
+    run(judge.judge_run(ScriptedChat(verdict("correct")), [result()], suite, out))
+    assert judge.read_judged(out)[0].judge_model == "scripted"
+
+
+def case(id: str, human: str) -> judge.Case:
+    return judge.Case(
+        id=id, fault=FaultType.BEARING_WEAR, root_cause="x y z", human=human, why="w h y"
+    )
+
+
+def test_calibration_is_recorded_per_model_and_only_if_complete(tmp_path: Path) -> None:
+    path = tmp_path / "calibrated.json"
+    judged = [
+        (case("a", "correct"), "correct", "model-a"),
+        (case("b", "wrong"), "correct", "model-a"),
+        (case("c", "wrong"), "wrong", "model-b"),  # a fallback answered ONE case
+    ]
+    entries = judge.record_calibration(judged, version="v1", path=path)
+    assert entries == {}  # neither model answered every case: none calibrated
+    full = [(c, v, "model-a") for c, v, _ in judged]
+    assert judge.record_calibration(full, version="v1", path=path) == {
+        "model-a": {"cases": 3, "agreement": 0.667}
+    }
+    assert judge.calibrated_models("v1", path) == {"model-a"}
+    assert judge.calibrated_models("v2", path) == set()  # another prompt version: not trusted
+
+
+def test_report_warns_about_an_uncalibrated_judge_model(
+    tmp_path: Path, suite: dict[str, Scenario], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(judge, "CALIBRATED", tmp_path / "calibrated.json")
+    judged = [
+        judge.Judged(
+            scenario_id=BEARING_ID,
+            thread_id=f"t-{BEARING_ID}",
+            prompt_version=judge.PROMPT_VERSION,
+            verdict="correct",
+            judge_model="fallback-model",
+        )
+    ]
+    assert "fallback-model: NOT calibrated" in render("r", [result()], suite, judged)
+    full = [(case("a", "correct"), "correct", "fallback-model")]
+    judge.record_calibration(full)
+    assert "1 verdict(s) from fallback-model (calibrated)" in render("r", [result()], suite, judged)
