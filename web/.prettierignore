@@ -1,0 +1,6 @@
+# generated from ../api/openapi.json by `pnpm gen:api`: never formatted by hand, so CI can
+# check it is byte-identical to a fresh generation
+src/lib/api/schema.d.ts
+.next
+node_modules
+pnpm-lock.yaml

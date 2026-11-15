@@ -21,7 +21,12 @@ class HealthResponse(BaseModel):
     db: Literal["ok", "error"]
 
 
-@router.get("/health", response_model=HealthResponse)
+@router.get(
+    "/health",
+    response_model=HealthResponse,
+    # The 503 body has the SAME shape (status "degraded"): documented so clients can read it.
+    responses={503: {"model": HealthResponse, "description": "Database unreachable"}},
+)
 async def health(
     response: Response, engine: Annotated[AsyncEngine, Depends(get_engine)]
 ) -> HealthResponse:

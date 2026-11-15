@@ -8,6 +8,7 @@ from collections.abc import AsyncIterator
 from contextlib import AsyncExitStack, asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.agent.budget import budget_from
 from app.agent.checkpoint import pooled_checkpointer
@@ -62,6 +63,15 @@ app.include_router(incidents.router)
 app.include_router(runs.router)
 app.include_router(work_orders.router)
 install(app)  # the SSE event payloads as schema components (6.3)
+# CORS (7.1): the dashboard (localhost:3000, later Vercel) is another ORIGIN than the API, so
+# the browser blocks its requests unless the API allows that origin. Only the listed ones.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=get_settings().cors_origins,
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
+    expose_headers=["Retry-After", "Location"],  # readable by the dashboard's JavaScript
+)
 
 
 @app.get("/")

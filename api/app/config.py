@@ -62,10 +62,13 @@ class Settings(BaseSettings):
     agent_max_tokens: int = 40_000
     # Investigations running at once in one API process (6.1); more get HTTP 429 + Retry-After.
     agent_max_concurrent_runs: int = 2
+    # Browser origins allowed to call the API (7.1): the dashboard. Comma-separated, no spaces.
+    # Never "*" in production: any website could then read our API from a visitor's browser.
+    cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:3000"]
 
-    @field_validator("openrouter_models", mode="before")
+    @field_validator("openrouter_models", "cors_origins", mode="before")
     @classmethod
-    def _split_models(cls, value: object) -> object:
+    def _split_comma_list(cls, value: object) -> object:
         if isinstance(value, str):
             return [m.strip() for m in value.split(",") if m.strip()]
         return value
