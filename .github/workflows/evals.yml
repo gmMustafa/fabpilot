@@ -1,0 +1,154 @@
+name: evals
+
+# The agent on eval scenarios, with REAL free models (8.5). Unlike python-ci this spends quota:
+# a smoke run is ~20 Groq requests (~40K tokens) + ~6 judge requests on OpenRouter (~50/day).
+# So it runs only when code that changes the agent's answers changes, and by hand.
+#
+# Setup (repo Settings -> Secrets and variables -> Actions):
+#   secrets:   GROQ_API_KEY, OPENROUTER_API_KEY
+#   variables: LLM_FALLBACKS (e.g. groq:openai/gpt-oss-120b@low), JUDGE_MODELS
+# Variables, not secrets: model routes aren't secret, and a variable changes without a commit.
+#
+# The FULL suite (~260K tokens) doesn't fit one free Groq model's daily limit (~200K), and a CI
+# run can't resume (fresh database every time). Run it locally (resumable); here, use tags
+# (smoke, drift, trap, control) that fit in one day.
+on:
+  pull_request:
+    # TODO(Mustafa): the paths whose change can change the agent's ANSWERS (and only those:
+    # every match costs quota). Hints:
+    # - the agent, the gateway, RAG, the MCP servers' code, the scenarios + their generator,
+    #   the knowledge base documents, the plant definition, this workflow file
+    # - NOT: the web app, the README, the eval results, tests that don't run the agent
+    # - "!pattern" after a pattern excludes again (order matters), as in python-ci.yml
+    # (judge.py / grade.py are left out on purpose: they change the GRADING, not the answers,
+    # and a local re-grade costs 0 requests.)
+    paths:
+      - ".github/workflows/evals.yml"
+      - "api/app/agent/**" # the incident agent: prompts, nodes, guardrails
+      - "api/app/gateway/**" # LLM calls: retries, fallbacks, reasoning effort
+      - "api/app/rag/**" # retrieval: what the agent reads
+      - "api/app/config.py" # defaults: budgets, retries, models
+      - "mcp/sensor_mcp/src/**" # the tools the agent calls
+      - "mcp/docs_mcp/src/**"
+      - "simulator/src/**" # fault injection CREATES the eval data
+      - "data/docs/**" # the knowledge base
+      - "data/plant.yaml" # machines, sensors, normal ranges
+      - "evals/scenarios/**"
+      - "evals/src/agent_evals/generate.py"
+      - "evals/src/agent_evals/evaldb.py" # eval clock, reset
+      - "evals/src/agent_evals/run.py" # the runner
+      - "uv.lock" # a LangGraph / MCP SDK upgrade can change behaviour
+  workflow_dispatch:
+    inputs:
+      tags:
+        description: "scenarios with ALL these tags (comma-separated), e.g. smoke | drift | trap"
+        default: smoke
+      min_accuracy:
+        description: "gate: lowest accuracy that passes (0..1)"
+        default: "0.8"
+      max_drift_blamed:
+        description: "gate: highest share of drift blamed on the machine (full-suite baseline 0.18)"
+        default: "0"
+
+permissions:
+  contents: read
+
+# A newer push cancels the older run: it would measure code that's already replaced.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  evals:
+    # TODO(Mustafa): when NOT to run, even if the paths match. Hints:
+    # - a PR from a FORK gets no secrets (GitHub's rule): the run would fail on a missing key.
+    #   Compare github.event.pull_request.head.repo.full_name with github.repository.
+    # - a DRAFT PR (github.event.pull_request.draft) is work in progress: don't spend quota yet.
+    # - workflow_dispatch has no pull_request at all: it must always run.
+    if: >-
+      ${{
+        github.event_name == 'workflow_dispatch' ||
+        (
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          github.event.pull_request.draft == false
+        )
+      }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    services:
+      db: # same image + digest as python-ci.yml and docker-compose.yml
+        image: timescale/timescaledb-ha:pg16@sha256:633aa83c3aabab7ca16745bc2506199a4f8de2faa87006d13f60b82911b512c6
+        env:
+          POSTGRES_USER: fabpilot
+          POSTGRES_PASSWORD: ci-only-password # throwaway DB on a throwaway VM, not a secret
+          POSTGRES_DB: fabpilot
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U fabpilot -d fabpilot"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      # the dev URL: agent_evals.evaldb derives fabpilot_eval from it and creates that database
+      DATABASE_URL: postgresql+psycopg://fabpilot:ci-only-password@127.0.0.1:5432/fabpilot
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      LLM_FALLBACKS: ${{ vars.LLM_FALLBACKS }}
+      JUDGE_MODELS: ${{ vars.JUDGE_MODELS }}
+      # measured on day 2: Groq's 8K tokens/min makes every 2nd call a 429; more patience per model
+      LLM_MAX_RETRIES: "3"
+      LLM_MAX_ATTEMPTS: "6"
+      # inputs reach the scripts as environment variables, never as ${{ }} inside `run:` (a
+      # crafted input would otherwise become shell code: "script injection")
+      TAGS: ${{ inputs.tags || 'smoke' }}
+      MIN_ACCURACY: ${{ inputs.min_accuracy || '0.8' }}
+      MAX_DRIFT_BLAMED: ${{ inputs.max_drift_blamed || '0' }}
+      OUT: results/ci-${{ github.run_id }}.jsonl
+    defaults:
+      run:
+        working-directory: evals
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.11.6"
+      - run: uv sync --locked --all-packages
+
+      # The embedding model (~130 MB) once, not on every run. The key names the model: a new
+      # EMBEDDING_MODEL gets a new cache entry instead of the wrong files.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/fastembed
+          key: fastembed-bge-small-en-v1.5
+
+      - name: eval database (migrate, seed, backfill, ingest)
+        run: uv run python -m agent_evals.evaldb
+
+      - name: run the agent
+        run: uv run python -m agent_evals.run --tags "$TAGS" --out "$OUT"
+
+      # From here on, `if: !cancelled()`: a failed step must still leave its evidence behind.
+      - name: judge
+        if: ${{ !cancelled() && hashFiles(format('evals/{0}', env.OUT)) != '' }}
+        run: uv run python -m agent_evals.judge "$OUT"
+
+      - name: report
+        if: ${{ !cancelled() && hashFiles(format('evals/{0}', env.OUT)) != '' }}
+        run: |
+          uv run python -m agent_evals.report "$OUT" > /dev/null
+          cat "${OUT%.jsonl}.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}
+        with:
+          name: eval-results-${{ github.run_id }}
+          path: evals/results/ci-${{ github.run_id }}*
+          if-no-files-found: warn
+          retention-days: 30
+
+      # Last: the verdict. A run that didn't complete fails as "infrastructure", not as the agent.
+      - name: gate
+        run: >-
+          uv run python -m agent_evals.gate "${OUT%.jsonl}.summary.json"
+          --min-accuracy "$MIN_ACCURACY" --max-drift-blamed "$MAX_DRIFT_BLAMED"
