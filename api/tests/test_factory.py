@@ -58,3 +58,20 @@ def test_a_route_to_a_provider_without_a_key_fails_at_startup() -> None:
                 openrouter_api_key=SecretStr("sk-or-x"), llm_fallbacks=["groq:openai/gpt-oss-120b"]
             )
         )
+
+
+def test_no_routes_is_a_clear_startup_error() -> None:
+    with pytest.raises(RuntimeError, match="LLM_FALLBACKS"):
+        build_gateway(settings(groq_api_key=SecretStr("gsk_x")))
+
+
+@pytest.mark.parametrize("empty", ["", "   "])
+def test_an_empty_key_is_no_key(empty: str) -> None:
+    # `OPENROUTER_API_KEY=` in .env, or a GitHub secret that isn't set: both arrive as ""
+    s = Settings(
+        database_url="postgresql+psycopg://u:p@127.0.0.1:5432/db",
+        openrouter_api_key=empty,
+        groq_api_key="gsk_x",
+    )
+    assert s.openrouter_api_key is None
+    assert list(build_providers(s)) == ["groq"]  # no OpenRouter client with an empty key
