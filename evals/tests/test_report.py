@@ -2,10 +2,12 @@
 (diagnosis_verdict is tested in test_grade.py), so this stays green while that's a TODO."""
 
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import pytest
 
+from agent_evals import summary
 from agent_evals.report import render
 from agent_evals.results import Result
 from agent_evals.scenario import SCENARIOS, Scenario, load_scenarios
@@ -105,3 +107,41 @@ def test_repeats_name_the_model_and_warn_when_models_differ(suite: dict[str, Sce
     text = render("r", [every[1]], suite, every=every)
     assert "wrong (openrouter:nemotron:free), correct (groq:gpt-oss-120b)" in text
     assert "answered by DIFFERENT models" in text
+
+
+# ---------------------------------------------------------------- summary.json (8.5)
+
+
+def test_summary_counts_what_the_report_counts(suite: dict[str, Scenario]) -> None:
+    ok = [{"purpose": "agent.hypothesize", "provider": "groq", "model": "x/m", "status": "ok"}]
+    rs = [
+        result("control-m10", hypothesis={"category": "machine_fault", "root_cause": "belt"}),
+        result("sensor-drift-m08", hypothesis={"category": "machine_fault", "root_cause": "hot"}),
+        result("gen-bearing-wear-cnc-mill-typical", status="failed", error="RateLimitedError"),
+        result("trap-overload-reset-m06", llm_calls=ok, usage={"provider_requests": 2}),
+        result("no-such-scenario"),  # not in the suite: not counted
+    ]
+    s = summary.summarize("t", rs, suite)
+    assert s.suite_size == len(suite)
+    assert s.totals.n == 4 and s.totals.errored == 1
+    assert s.completion == 3 / 4
+    assert (s.controls, s.invented) == (1, 1)
+    assert (s.drifts, s.blamed) == (1, 1)
+    assert s.by_fault["none"].n == 1 and s.by_fault["bearing_wear"].errored == 1
+    assert s.diagnosed_by["groq:m"] == 1  # the final hypothesis's model, short name
+    assert s.requests == 2
+    assert s.judge is None  # nothing judged
+
+
+def test_summary_of_an_empty_run_has_no_rates(suite: dict[str, Scenario]) -> None:
+    s = summary.summarize("empty", [], suite)
+    # 0/0 is "not measured", not 0 %: a gate must not read it as a failure (or a pass)
+    assert s.totals.n == 0 and s.accuracy is None and s.completion is None
+
+
+def test_summary_round_trip(suite: dict[str, Scenario], tmp_path: Path) -> None:
+    s = summary.summarize("t", [result("control-m10", hypothesis=None)], suite)
+    path = summary.path_for(tmp_path / "run.jsonl")
+    assert path.name == "run.summary.json"
+    summary.write(s, path)
+    assert summary.read(path) == s

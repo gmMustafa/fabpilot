@@ -136,3 +136,16 @@ def done_ids(path: Path) -> set[str]:
 def completed_counts(path: Path) -> Counter[str]:
     """scenario_id -> how many COMPLETED runs the file holds (for --repeat: run until N)."""
     return Counter(r.scenario_id for r in read(path) if r.completed)
+
+
+def diagnosed_by(r: Result) -> str:
+    """The model that gave the FINAL hypothesis: the last successful agent.hypothesize attempt
+    ("?" for results recorded before 8.3c). With fallback across routes, two runs of the same
+    scenario can be answered by different models: a verdict without its model invites
+    comparing a model with another one."""
+    oks = [c for c in r.llm_calls if c["purpose"] == "agent.hypothesize" and c["status"] == "ok"]
+    if not oks:
+        return "?"
+    c = oks[-1]
+    model = str(c["model"]).split("/")[-1]  # "nvidia/nemotron-3.5-super-vl:free" -> short
+    return f"{c['provider']}:{model}" if c.get("provider") else model

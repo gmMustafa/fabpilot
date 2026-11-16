@@ -15,7 +15,7 @@ from collections import Counter
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
-from agent_evals import judge, results
+from agent_evals import judge, results, summary
 from agent_evals.evaldb import eval_plant
 from agent_evals.grade import DIFFICULTIES, Grade, grade
 from agent_evals.scenario import SCENARIOS, Scenario, load_scenarios
@@ -130,19 +130,6 @@ def _judge_section(
     return out
 
 
-def diagnosed_by(r: results.Result) -> str:
-    """The model that gave the FINAL hypothesis: the last successful agent.hypothesize attempt
-    ("?" for results recorded before 8.3c). With fallback across routes, two runs of the same
-    scenario can be answered by different models: a verdict without its model invites
-    comparing a model with another one."""
-    oks = [c for c in r.llm_calls if c["purpose"] == "agent.hypothesize" and c["status"] == "ok"]
-    if not oks:
-        return "?"
-    c = oks[-1]
-    model = str(c["model"]).split("/")[-1]  # "nvidia/nemotron-3.5-super-vl:free" -> short
-    return f"{c['provider']}:{model}" if c.get("provider") else model
-
-
 def _repeats(every: list[results.Result], scenarios: dict[str, Scenario]) -> list[str]:
     """Every completed verdict of a scenario run more than once, WITH the model that gave it.
     The headline shows only the newest result, and with free models one run can be luck
@@ -151,7 +138,7 @@ def _repeats(every: list[results.Result], scenarios: dict[str, Scenario]) -> lis
     for r in every:
         if r.completed and r.scenario_id in scenarios:
             v = grade(r, scenarios[r.scenario_id]).verdict or "errored"
-            runs.setdefault(r.scenario_id, []).append((v, diagnosed_by(r)))
+            runs.setdefault(r.scenario_id, []).append((v, results.diagnosed_by(r)))
     repeated = {sid: vs for sid, vs in runs.items() if len(vs) > 1}
     if not repeated:
         return []
@@ -302,7 +289,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(text)
     out = args.results_file.with_suffix(".md")
     out.write_text(text, encoding="utf-8", newline="\n")
-    print(f"-> {out}")
+    data = summary.path_for(args.results_file)
+    summary.write(summary.summarize(args.results_file.stem, newest, scenarios, judged), data)
+    print(f"-> {out}\n-> {data}")
     return 0
 
 
