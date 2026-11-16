@@ -32,7 +32,7 @@ from pathlib import Path
 
 import psycopg
 
-from agent_evals import results
+from agent_evals import manifest, results
 from agent_evals.evaldb import BACKFILL_DAYS, EVAL_NOW, SEED, eval_plant, use_eval_db
 from agent_evals.scenario import SCENARIOS, Scenario, load_scenarios
 from app.agent.budget import budget_from
@@ -43,6 +43,7 @@ from app.agent.tools import McpTools
 from app.config import Settings, get_settings
 from app.db.session import create_engine
 from app.gateway.factory import build_gateway
+from app.gateway.gateway import DEFAULT_TEMPERATURE
 from app.plant import PlantConfig
 from app.rag.corpus import load_corpus
 from app.runtime import run
@@ -154,6 +155,7 @@ async def run_scenario(
     plant: PlantConfig,
     s: Scenario,
     settings: Settings,
+    run_manifest: manifest.Manifest,
 ) -> results.Result:
     """Set up, ask, wait for the run to pause (a draft) or end, and record what it produced."""
     # Sync DB work inside the loop: fine for a CLI that runs one scenario at a time.
@@ -190,6 +192,7 @@ async def run_scenario(
         models=settings.fallbacks,
         eval_now=EVAL_NOW,
         started_at=started_at,
+        manifest=run_manifest,
     )
 
 
@@ -204,12 +207,18 @@ def summary_line(r: results.Result, spent: int) -> str:
     )
 
 
-async def run_all(settings: Settings, plant: PlantConfig, todo: list[Scenario], out: Path) -> int:
+async def run_all(
+    settings: Settings,
+    plant: PlantConfig,
+    todo: list[Scenario],
+    out: Path,
+    run_manifest: manifest.Manifest,
+) -> int:
     spent = 0
     async with agent_service(settings) as service:
         with connect(settings) as conn:
             for s in todo:
-                r = await run_scenario(service, conn, plant, s, settings)
+                r = await run_scenario(service, conn, plant, s, settings, run_manifest)
                 results.append(out, r)  # saved BEFORE the next scenario starts
                 spent += r.usage.provider_requests
                 print(summary_line(r, spent), flush=True)
@@ -291,7 +300,23 @@ def main(argv: Sequence[str] | None = None) -> int:
         f"routes: {', '.join(settings.fallbacks)} | retries per model {settings.llm_max_retries}, "
         f"attempts per call {settings.llm_max_attempts}"
     )
-    spent = run(run_all(settings, plant, todo, out))
+    # Strict: ONE route. The gateway's fallback keeps the dashboard answering; in an eval it would
+    # silently measure two models in one run (day 1 of the baseline did: 3 work orders by Qwen).
+    if len(settings.fallbacks) != 1:
+        print(
+            f"evals pin ONE model: LLM_FALLBACKS has {len(settings.fallbacks)} routes "
+            f"({', '.join(settings.fallbacks) or 'none'}). Set exactly one, e.g. "
+            "$env:LLM_FALLBACKS='groq:openai/gpt-oss-120b@low'",
+            file=sys.stderr,
+        )
+        return 2
+    run_manifest = manifest.build(settings.fallbacks, DEFAULT_TEMPERATURE)
+    dirty = " + uncommitted changes" if run_manifest.git_dirty else ""
+    print(
+        f"manifest: agent {run_manifest.agent_hash}, temperature {run_manifest.temperature}, "
+        f"commit {(run_manifest.git_sha or '?')[:8]}{dirty}"
+    )
+    spent = run(run_all(settings, plant, todo, out, run_manifest))
     print(f"\n{len(todo)} runs, {spent} provider requests -> {out}")
     return 0
 

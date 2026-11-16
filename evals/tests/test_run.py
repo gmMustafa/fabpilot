@@ -15,6 +15,7 @@ from pydantic import PostgresDsn
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from agent_evals import evaldb
+from agent_evals.manifest import Manifest
 from agent_evals.results import Result
 from agent_evals.run import Prepared, prepare, run_scenario, select
 from agent_evals.scenario import Scenario
@@ -37,6 +38,10 @@ from simulator.db import connect
 from simulator.runner import backfill
 
 NOW = evaldb.EVAL_NOW  # the eval clock: a Tuesday, mid-shift
+
+MANIFEST = Manifest(
+    routes=("groq:m",), temperature=0.2, agent_hash="abc", git_sha=None, git_dirty=False
+)
 
 
 def scenario(
@@ -190,11 +195,13 @@ def test_run_scenario_records_a_run_without_any_llm_request(
                     plant,
                     scenario("f", "M-01", "bearing_wear"),
                     settings_for(temp_db_name),
+                    MANIFEST,
                 )
         finally:
             await engine.dispose()
 
     r = run(go())
+    assert r.manifest == MANIFEST  # every result says what it was measured with
     assert r.status == "done" and r.hypothesis is None
     assert r.usage.provider_requests == 0
     assert r.tools == ["get_machine", "get_alarm_log", "list_incident_reports"]

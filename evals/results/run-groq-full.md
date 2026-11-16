@@ -28,6 +28,12 @@ Accuracy = correct / completed. An allowed 'unknown' is acceptable, never correc
 | trap | 10 | 10 | 0 | 0 | 0 |
 | smoke | 7 | 7 | 0 | 0 | 0 |
 
+## Manifest
+
+- answered by: groq:openai/gpt-oss-120b (51 rows), groq:qwen/qwen3.8-27b (3 rows)
+- 51 row(s) recorded before manifests (answering model only)
+- ! INVALID: mixed models: groq:openai/gpt-oss-120b (51 rows), groq:qwen/qwen3.8-27b (3 rows)
+
 ## Repeats (every completed run, oldest first)
 
 | scenario | verdicts (model) | correct |

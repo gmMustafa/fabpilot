@@ -15,7 +15,7 @@ from collections import Counter
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
-from agent_evals import judge, results, summary
+from agent_evals import judge, manifest, results, summary
 from agent_evals.evaldb import eval_plant
 from agent_evals.grade import DIFFICULTIES, Grade, grade
 from agent_evals.scenario import SCENARIOS, Scenario, load_scenarios
@@ -127,6 +127,33 @@ def _judge_section(
     return out
 
 
+def _commit(m: manifest.Manifest) -> str:
+    return (m.git_sha or "?")[:8] + (" (dirty)" if m.git_dirty else "")
+
+
+def _manifest_section(known: list[results.Result]) -> list[str]:
+    """What the run was measured WITH (8.6-pre), and whether every row agrees."""
+    answered = Counter(m for r in known for m in results.answered_by(r))
+    found = [r.manifest for r in known if r.manifest is not None]
+    out = ["", "## Manifest", ""]
+    out.append(
+        "- answered by: "
+        + (", ".join(f"{m} ({n} rows)" for m, n in answered.most_common()) or "nothing")
+    )
+    if found:
+        m = found[-1]
+        commits = sorted({_commit(x) for x in found})
+        out.append(
+            f"- routes {', '.join(m.routes)}; temperature {m.temperature}; agent {m.agent_hash}; "
+            f"commits {', '.join(commits)}"
+        )
+    if missing := len(known) - len(found):
+        out.append(f"- {missing} row(s) recorded before manifests (answering model only)")
+    issues = manifest.problems([r.manifest for r in known], [results.answered_by(r) for r in known])
+    out += [f"- ! INVALID: {p}" for p in issues] or ["- one model, one configuration: comparable"]
+    return out
+
+
 def _repeats(every: list[results.Result], scenarios: dict[str, Scenario]) -> list[str]:
     """Every completed verdict of a scenario run more than once, WITH the model that gave it.
     The headline shows only the newest result, and with free models one run can be luck
@@ -194,6 +221,7 @@ def render(
         "## By group",
         "",
         *_group_table(grades),
+        *_manifest_section(known),
         *_repeats(every or [], scenarios),
         "",
         "## False alarms",

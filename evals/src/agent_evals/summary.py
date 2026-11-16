@@ -13,7 +13,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
-from agent_evals import judge, results
+from agent_evals import judge, manifest, results
 from agent_evals.grade import DIFFICULTIES, Grade, grade
 from agent_evals.scenario import Scenario
 
@@ -71,6 +71,10 @@ class Summary(BaseModel):
     median_seconds: float
     stale: int
     judge: JudgeSummary | None
+    # 8.6-pre: does the run measure ONE configuration? (defaults: summaries written before)
+    answered_by: dict[str, int] = {}  # provider:model -> rows it answered in (agent calls)
+    manifest_problems: list[str] = []  # mixed models / differing settings: an invalid run
+    manifests_missing: int = 0  # rows recorded before manifests existed
 
 
 def _count(grades: list[Grade]) -> Counts:
@@ -143,6 +147,11 @@ def summarize(
         median_seconds=statistics.median(walls) if walls else 0.0,
         stale=sum(g.stale for g in grades),
         judge=_judge(done, judged or []),
+        answered_by=dict(Counter(m for r in known for m in results.answered_by(r))),
+        manifest_problems=manifest.problems(
+            [r.manifest for r in known], [results.answered_by(r) for r in known]
+        ),
+        manifests_missing=sum(r.manifest is None for r in known),
     )
 
 

@@ -47,6 +47,12 @@ from app.gateway.types import (
 logger = logging.getLogger(__name__)
 
 
+# The default since 2.1, never tuned. Kept for the 8.6 comparison: the baseline ran with it.
+# The eval manifest records it, so a change shows up as a different configuration, never as
+# a better or worse model.
+DEFAULT_TEMPERATURE = 0.2
+
+
 class Action(StrEnum):
     RETRY_SAME = "retry_same"  # transient: wait, then call the same model again
     NEXT_MODEL = "next_model"  # this model is out for now: move down the fallback list
@@ -182,7 +188,7 @@ class LLMGateway:
         messages: list[ChatMessage],
         *,
         max_tokens: int = 1024,
-        temperature: float = 0.2,
+        temperature: float = DEFAULT_TEMPERATURE,
         purpose: str = "unspecified",
         cache: CachePolicy = CachePolicy.SHARED,
     ) -> LLMResponse:

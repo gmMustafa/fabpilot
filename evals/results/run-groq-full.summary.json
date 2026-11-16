@@ -133,5 +133,13 @@
     "correct": 35,
     "agree": 35,
     "calibrated": true
-  }
+  },
+  "answered_by": {
+    "groq:openai/gpt-oss-120b": 51,
+    "groq:qwen/qwen3.8-27b": 3
+  },
+  "manifest_problems": [
+    "mixed models: groq:openai/gpt-oss-120b (51 rows), groq:qwen/qwen3.8-27b (3 rows)"
+  ],
+  "manifests_missing": 51
 }

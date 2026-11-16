@@ -14,6 +14,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
+from agent_evals.manifest import Manifest
 from app.agent.state import AgentState
 
 RunEnd = Literal["paused", "done", "failed"]  # paused = a draft waits for approval
@@ -57,6 +58,7 @@ class Result(BaseModel):
     models: list[str]
     eval_now: datetime
     started_at: datetime
+    manifest: Manifest | None = None  # None: recorded before 8.6 (manifest.py)
 
     @property
     def completed(self) -> bool:
@@ -149,3 +151,13 @@ def diagnosed_by(r: Result) -> str:
     c = oks[-1]
     model = str(c["model"]).split("/")[-1]  # "nvidia/nemotron-3.5-super-vl:free" -> short
     return f"{c['provider']}:{model}" if c.get("provider") else model
+
+
+def answered_by(r: Result) -> set[str]:
+    """provider:model of every SUCCESSFUL agent call of this run: what actually answered (the
+    manifest's routes say only what MAY answer). Judge calls aren't in a result."""
+    return {
+        f"{c['provider']}:{c['model']}" if c.get("provider") else str(c["model"])
+        for c in r.llm_calls
+        if str(c["purpose"]).startswith("agent.") and c["status"] == "ok"
+    }

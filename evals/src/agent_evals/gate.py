@@ -9,6 +9,8 @@ An LLM varies between runs, so "every answer right" would make CI flaky. The gat
   machine. A maintenance tool that sends people to fix a healthy machine is worse than no tool.
 - SOFT floors: accuracy, completion. A run that didn't complete (quota, 429) is reported as
   infrastructure, never as the agent being wrong: the same split as the report.
+- VALIDITY (8.6-pre): a run whose rows were answered by different models, or measured with
+  different settings, is "invalid": its score describes no single configuration.
 """
 
 from __future__ import annotations
@@ -85,6 +87,11 @@ def check(s: Summary, t: Thresholds) -> list[str]:
     return failures
 
 
+def validity(s: Summary) -> list[str]:
+    """The run measures one thing, or it measures nothing: never averaged over a mix."""
+    return [f"invalid: {p}" for p in s.manifest_problems]
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     defaults = Thresholds()
     parser = argparse.ArgumentParser(prog="agent_evals.gate", description=__doc__.split("\n")[0])
@@ -101,7 +108,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         max_false_alarm=args.max_false_alarm,
         max_drift_blamed=args.max_drift_blamed,
     )
-    failures = check(summary_mod.read(args.summary_file), t)
+    s = summary_mod.read(args.summary_file)
+    failures = validity(s) + check(s, t)
     for f in failures:
         print(f"FAIL {f}")
     if not failures:
