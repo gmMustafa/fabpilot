@@ -324,3 +324,26 @@ def test_run_loop_without_a_quota_hit_saves_everything() -> None:
     saved: list[str] = []
     got = asyncio.run(run_loop(todo, run_one, lambda r: saved.append(r.scenario_id)))
     assert saved == ["s1", "s2"] and got.paused is None and got.done == 2
+
+
+def test_a_draft_whose_llm_never_answered_is_not_completed() -> None:
+    # the real row (2026-11-16): the diagnosis answered, Groq's daily cap hit the draft call
+    r = outcome(
+        "a",
+        attempt(None, None),
+        attempt("ModelUnavailableError", 429, purpose="agent.work_order"),
+    )
+    assert r.llm_error is None and r.draft_llm_failed
+    assert not r.completed  # errored, re-run on resume: not "the agent chose not to draft"
+    assert quota_exhausted(r)  # and the loop stops there
+
+
+def test_a_draft_that_answered_once_is_completed() -> None:
+    # a retried draft (e.g. after a guardrail rejection) whose second call answered
+    r = outcome(
+        "a",
+        attempt(None, None),
+        attempt("RateLimitedError", 429, purpose="agent.work_order"),
+        attempt(None, None, purpose="agent.work_order"),
+    )
+    assert not r.draft_llm_failed and r.completed

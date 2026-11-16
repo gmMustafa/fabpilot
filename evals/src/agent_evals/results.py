@@ -65,7 +65,21 @@ class Result(BaseModel):
         """The agent got to answer. Not completed (a crash, an LLM failure) = run it again on
         resume, and grade it as ERRORED, never as wrong: a bad day on OpenRouter is not a bad
         agent."""
-        return self.status != "failed" and self.error is None and self.llm_error is None
+        return (
+            self.status != "failed"
+            and self.error is None
+            and self.llm_error is None
+            and not self.draft_llm_failed
+        )
+
+    @property
+    def draft_llm_failed(self) -> bool:
+        """The work-order step called the LLM and NO attempt answered. The agent survives that
+        (work_order_errors, no llm_error) and ends without a draft, so it looked like "chose not
+        to draft" and was graded so: seen live 2026-11-16, Groq's daily cap hit the draft call.
+        A draft the guardrails rejected doesn't count: its LLM call answered."""
+        drafts = [c for c in self.llm_calls if c["purpose"] == "agent.work_order"]
+        return bool(drafts) and all(c["status"] != "ok" for c in drafts)
 
 
 def tools_called(state: AgentState) -> list[str]:

@@ -281,7 +281,11 @@ def render(
     errored = [r for r in known if not r.completed]
     if errored:
         out += ["", "## Errored (re-run on resume)", ""]
-        out += [f"- {r.scenario_id}: {(r.error or r.llm_error or r.status)[:160]}" for r in errored]
+        out += [
+            f"- {r.scenario_id}: "
+            + (r.error or r.llm_error or "; ".join(r.work_order_errors) or r.status)[:160]
+            for r in errored
+        ]
     stale = [g.scenario_id for g in grades if g.stale]
     gone = sorted(r.scenario_id for r in rs if r.scenario_id not in scenarios)
     if stale or gone:
