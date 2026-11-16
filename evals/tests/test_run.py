@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from agent_evals import evaldb
 from agent_evals.manifest import Manifest
 from agent_evals.results import Result
-from agent_evals.run import Prepared, prepare, run_scenario, select
+from agent_evals.run import Prepared, prepare, quota_exhausted, run_loop, run_scenario, select
 from agent_evals.scenario import Scenario
 from app.agent.checkpoint import pooled_checkpointer
 from app.agent.service import AgentService
@@ -209,3 +209,118 @@ def test_run_scenario_records_a_run_without_any_llm_request(
     # the investigation window comes from the EVAL clock, not the real time
     _, tool, args = fake.calls[1]
     assert tool == "get_alarm_log" and args["end"] <= (NOW + timedelta(minutes=1)).isoformat()
+
+
+# ---------------------------------------------------------------- stop at a daily quota (8.6-pre)
+
+
+def attempt(
+    error_type: str | None, http_status: int | None, purpose: str = "agent.hypothesize"
+) -> dict[str, object]:
+    status = "ok" if error_type is None else "error"
+    return {
+        "purpose": purpose,
+        "provider": "groq",
+        "model": "openai/gpt-oss-120b",
+        "status": status,
+        "error_type": error_type,
+        "http_status": http_status,
+    }
+
+
+def outcome(sid: str, *calls: dict[str, object], llm_error: str | None = None) -> Result:
+    return Result(
+        scenario_id=sid,
+        status="done",
+        thread_id="t",
+        machine="M-01",
+        question="q",
+        wall_seconds=1.0,
+        cache=False,
+        models=[],
+        eval_now=NOW,
+        started_at=NOW,
+        llm_calls=list(calls),
+        llm_error=llm_error,
+        usage={"provider_requests": len(calls)},
+    )
+
+
+FAILED = "AllModelsFailedError: all models failed"
+
+
+def test_quota_openrouter_daily_cap_stops() -> None:
+    # the real row (eval DB, 2026-11-15): QuotaExhaustedError, HTTP 429
+    r = outcome("a", attempt("QuotaExhaustedError", 429), llm_error=FAILED)
+    assert quota_exhausted(r)
+
+
+def test_quota_groq_daily_cap_stops() -> None:
+    # groq.py maps a per-model daily limit to ModelUnavailableError + 429 (not yet seen live)
+    r = outcome(
+        "a",
+        attempt("RateLimitedError", 429),
+        attempt("ModelUnavailableError", 429),
+        llm_error=FAILED,
+    )
+    assert quota_exhausted(r)
+
+
+def test_quota_per_minute_429_is_not_a_stop() -> None:
+    # 94 of these in the baseline: waited out by the gateway, never a reason to stop
+    r = outcome(
+        "a", attempt("RateLimitedError", 429), attempt("RateLimitedError", 429), llm_error=FAILED
+    )
+    assert not quota_exhausted(r)
+
+
+def test_quota_same_error_type_with_another_status_is_not_a_stop() -> None:
+    too_large = outcome("a", attempt("ModelUnavailableError", 413), llm_error=FAILED)
+    withdrawn = outcome("b", attempt("ModelUnavailableError", 400), llm_error=FAILED)
+    assert not quota_exhausted(too_large) and not quota_exhausted(withdrawn)
+
+
+def test_quota_a_completed_run_is_never_a_stop() -> None:
+    # the cap hit an attempt, but a retry (or another call) still answered: the run is fine
+    r = outcome("a", attempt("QuotaExhaustedError", 429), attempt(None, None))
+    assert r.completed and not quota_exhausted(r)
+
+
+def test_quota_old_rows_without_http_status() -> None:
+    old = attempt("ModelUnavailableError", None)
+    del old["http_status"]  # recorded before 8.6
+    assert not quota_exhausted(outcome("a", old, llm_error=FAILED))
+
+
+def test_quota_judge_calls_dont_count() -> None:
+    r = outcome("a", attempt("QuotaExhaustedError", 429, purpose="eval.judge"), llm_error=FAILED)
+    assert not quota_exhausted(r)
+
+
+def test_run_loop_stops_at_the_quota_and_does_not_save_that_run() -> None:
+    answers = {
+        "s1": outcome("s1", attempt(None, None)),
+        "s2": outcome("s2", attempt("QuotaExhaustedError", 429), llm_error=FAILED),
+        "s3": outcome("s3", attempt(None, None)),
+    }
+    todo = [scenario(sid, "M-01", None) for sid in answers]
+    saved: list[str] = []
+
+    async def run_one(s: Scenario) -> Result:
+        return answers[s.id]
+
+    got = asyncio.run(run_loop(todo, run_one, lambda r: saved.append(r.scenario_id)))
+    assert saved == ["s1"]  # s2 is NOT saved: resume runs it again after the reset; s3 never ran
+    assert got.done == 1 and got.paused is not None and got.paused.scenario_id == "s2"
+    assert got.spent == 2  # s2's failed attempt still counts against the quota
+
+
+def test_run_loop_without_a_quota_hit_saves_everything() -> None:
+    todo = [scenario(sid, "M-01", None) for sid in ("s1", "s2")]
+
+    async def run_one(s: Scenario) -> Result:
+        return outcome(s.id, attempt(None, None))
+
+    saved: list[str] = []
+    got = asyncio.run(run_loop(todo, run_one, lambda r: saved.append(r.scenario_id)))
+    assert saved == ["s1", "s2"] and got.paused is None and got.done == 2

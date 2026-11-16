@@ -23,7 +23,7 @@ import os
 import sys
 import time
 from collections import Counter
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -170,7 +170,7 @@ async def run_scenario(
     found = await service.state(handle.thread_id)
     # Runs are sequential, so the gateway's log rows since this run started are this run's.
     calls = conn.execute(
-        "SELECT purpose, provider, model, status, error_type FROM llm_calls"
+        "SELECT purpose, provider, model, status, error_type, http_status FROM llm_calls"
         " WHERE time >= %s ORDER BY time, attempt_no",
         (started_at,),
     ).fetchall()
@@ -183,8 +183,15 @@ async def run_scenario(
         question=s.question,
         error=error,
         llm_calls=[
-            {"purpose": p, "provider": pr, "model": m, "status": st, "error_type": et}
-            for p, pr, m, st, et in calls
+            {
+                "purpose": p,
+                "provider": pr,
+                "model": m,
+                "status": st,
+                "error_type": et,
+                "http_status": hs,
+            }
+            for p, pr, m, st, et, hs in calls
         ],
         setup=s.setup.model_dump(mode="json"),
         wall_seconds=round(time.perf_counter() - t0, 1),
@@ -207,22 +214,80 @@ def summary_line(r: results.Result, spent: int) -> str:
     )
 
 
+def quota_exhausted(r: results.Result) -> bool:
+    """Did this run fail because the (single) model's DAILY quota is gone? Then nothing will
+    answer before the reset, and every further scenario would only fail the same way.
+
+    Not the same as a 429 per MINUTE: the gateway waits those out (retry-after), and a run
+    that still failed on one is an ordinary errored run.
+    """
+    # Completed runs should never stop further evaluations.
+    if r.completed:
+        return False
+
+    for c in r.llm_calls:
+        # Only failed agent calls count.
+        if not str(c.get("purpose", "")).startswith("agent."):
+            continue
+
+        if c.get("status") != "error":
+            continue
+
+        error_type = c.get("error_type")
+        http_status = c.get("http_status")
+
+        # OpenRouter daily quota exhausted.
+        if error_type == "QuotaExhaustedError":
+            return True
+
+        # Groq model-specific daily quota exhausted.
+        if error_type == "ModelUnavailableError" and http_status == 429:
+            return True
+
+    return False
+
+
+@dataclass(frozen=True)
+class Outcome:
+    done: int  # results saved
+    spent: int  # provider requests
+    paused: results.Result | None = None  # the run that hit the daily quota (NOT saved)
+
+
+async def run_loop(
+    todo: Sequence[Scenario],
+    run_one: Callable[[Scenario], Awaitable[results.Result]],
+    save: Callable[[results.Result], None],
+) -> Outcome:
+    """Run each scenario and save its result before the next starts; stop at a daily quota.
+    The quota-hit run isn't saved: it measured the quota, not the agent, and resume (which
+    skips only COMPLETED scenarios) runs it again after the reset."""
+    done = spent = 0
+    for s in todo:
+        r = await run_one(s)
+        spent += r.usage.provider_requests
+        if quota_exhausted(r):
+            return Outcome(done, spent, paused=r)
+        save(r)
+        done += 1
+        print(summary_line(r, spent), flush=True)
+    return Outcome(done, spent)
+
+
 async def run_all(
     settings: Settings,
     plant: PlantConfig,
     todo: list[Scenario],
     out: Path,
     run_manifest: manifest.Manifest,
-) -> int:
-    spent = 0
+) -> Outcome:
     async with agent_service(settings) as service:
         with connect(settings) as conn:
-            for s in todo:
-                r = await run_scenario(service, conn, plant, s, settings, run_manifest)
-                results.append(out, r)  # saved BEFORE the next scenario starts
-                spent += r.usage.provider_requests
-                print(summary_line(r, spent), flush=True)
-    return spent
+            return await run_loop(
+                todo,
+                lambda s: run_scenario(service, conn, plant, s, settings, run_manifest),
+                partial(results.append, out),
+            )
 
 
 # ---------------------------------------------------------------- CLI
@@ -316,8 +381,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         f"manifest: agent {run_manifest.agent_hash}, temperature {run_manifest.temperature}, "
         f"commit {(run_manifest.git_sha or '?')[:8]}{dirty}"
     )
-    spent = run(run_all(settings, plant, todo, out, run_manifest))
-    print(f"\n{len(todo)} runs, {spent} provider requests -> {out}")
+    outcome = run(run_all(settings, plant, todo, out, run_manifest))
+    if outcome.paused is not None:
+        # 3: neither done (0) nor broken (1): a script or CI can tell "come back after the reset"
+        print(
+            f"\nPaused: {outcome.done}/{len(todo)} done, {outcome.spent} provider requests. "
+            f"Daily quota of {', '.join(settings.fallbacks)} exhausted at "
+            f"{outcome.paused.scenario_id}.\nResume after the reset with the same command "
+            f"(--out {out}): finished scenarios are skipped."
+        )
+        return 3
+    print(f"\n{len(todo)} runs, {outcome.spent} provider requests -> {out}")
     return 0
 
 
