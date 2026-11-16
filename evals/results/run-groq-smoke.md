@@ -53,3 +53,11 @@ Accuracy = correct / completed. An allowed 'unknown' is acceptable, never correc
 |---|---|---|
 | groq:openai/gpt-oss-120b | 11 | 6 |
 | groq:qwen/qwen3.8-27b | 2 | 1 |
+
+## Judge (LLM, root cause only)
+
+Prompt version bfd383e0146c; judged only answers with the right fault category. correct 6.
+
+- judge says correct: 6/6 (100 %)
+- agrees with the keyword grade: 6/6 (100 %)
+- 6 verdict(s) from dots-studio/dots-3-note-preview:free (calibrated)

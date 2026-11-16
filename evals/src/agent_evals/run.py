@@ -284,6 +284,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         f"cache {'on' if settings.llm_cache_enabled else 'off'}; "
         f"eval clock {EVAL_NOW:%Y-%m-%d %H:%M} UTC"
     )
+    # Which models CAN answer, printed before anything runs: a pinned single-model eval whose
+    # pin didn't take effect (variables set in another terminal) must be visible here, not
+    # discovered afterwards in the cost table.
+    print(
+        f"routes: {', '.join(settings.fallbacks)} | retries per model {settings.llm_max_retries}, "
+        f"attempts per call {settings.llm_max_attempts}"
+    )
     spent = run(run_all(settings, plant, todo, out))
     print(f"\n{len(todo)} runs, {spent} provider requests -> {out}")
     return 0
