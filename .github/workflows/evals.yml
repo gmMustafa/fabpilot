@@ -4,9 +4,9 @@ name: evals
 # a smoke run is ~20 Groq requests (~40K tokens) + ~6 judge requests on OpenRouter (~50/day).
 # So it runs only when code that changes the agent's answers changes, and by hand.
 #
-# Setup (repo Settings -> Secrets and variables -> Actions):
-#   secrets:   GROQ_API_KEY, OPENROUTER_API_KEY
-#   variables: LLM_FALLBACKS (e.g. groq:openai/gpt-oss-120b@low), JUDGE_MODELS
+# Setup (repo Settings -> Environments -> EVAL):
+#   environment secrets:   GROQ_API_KEY, OPENROUTER_API_KEY
+#   environment variables: LLM_FALLBACKS (e.g. groq:openai/gpt-oss-120b@low), JUDGE_MODELS
 # Variables, not secrets: model routes aren't secret, and a variable changes without a commit.
 #
 # The FULL suite (~260K tokens) doesn't fit one free Groq model's daily limit (~200K), and a CI
@@ -73,6 +73,10 @@ jobs:
           github.event.pull_request.draft == false
         )
       }}
+    # The keys and routes live in the EVAL environment, not the repository: only a job that names
+    # it can read them (no other workflow sees the keys). Optional quota guard: Settings ->
+    # Environments -> EVAL -> Required reviewers, then every run waits for an approval click.
+    environment: EVAL
     runs-on: ubuntu-latest
     timeout-minutes: 60
     services:
