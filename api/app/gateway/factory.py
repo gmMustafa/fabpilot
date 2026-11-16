@@ -42,8 +42,10 @@ def build_gateway(settings: Settings, *, engine: AsyncEngine | None = None) -> L
 
     With `engine`: every attempt is logged to llm_calls (2.2), and, if LLM_CACHE_ENABLED, repeated
     requests are answered from llm_cache (2.3). A route naming a provider without a key fails
-    HERE, at startup, with what to set: not on the first question.
+    HERE, at startup, with what to set: not on the first question. So does an empty route list.
     """
+    if not settings.fallbacks:
+        raise RuntimeError("no LLM routes: set LLM_FALLBACKS, e.g. groq:openai/gpt-oss-120b@low")
     config = GatewayConfig(
         models=settings.fallbacks,
         max_retries_per_model=settings.llm_max_retries,

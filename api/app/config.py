@@ -90,6 +90,17 @@ class Settings(BaseSettings):
             return [m.strip() for m in value.split(",") if m.strip()]
         return value
 
+    @field_validator("openrouter_api_key", "groq_api_key", mode="before")
+    @classmethod
+    def _empty_key_is_no_key(cls, value: object) -> object:
+        """`KEY=` (as in .env.example) and a missing GitHub secret both arrive as "": that is NO
+        key, not a key. Otherwise a client is built with an empty key and fails later with a
+        misleading SDK error (measured in CI 8.5: "set OPENAI_API_KEY"). Per field on purpose,
+        not env_ignore_empty for all: LLM_REASONING_EFFORT= empty means "model default"."""
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
     @property
     def fallbacks(self) -> list[str]:
         """The gateway's routes: LLM_FALLBACKS, or the older OPENROUTER_MODELS if that is all."""
