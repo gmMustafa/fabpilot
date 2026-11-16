@@ -60,7 +60,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done (verified, quiz answered, 
 - [x] 8.2 ~50 scenarios — 48: 39 generated (fault × type × difficulty, drift, controls) + 9 hand-written (traps)
 - [x] 8.3 Metrics — eval DB + dry run (8.3a), agent runs with resume (8.3b), grading + report (8.3c); smoke set 7/7 correct
 - [x] 8.4 LLM-as-judge — root cause only, calibrated on 14 human-labelled cases (100 % agreement, dots-3-note-preview)
-- [ ] 8.5 Evals in GitHub Actions + README table
+- [x] 8.5 Evals in GitHub Actions + README table — baseline 44/51 (86 %) on Groq gpt-oss-120b; summary.json → gate + generated README table; smoke set gated on PRs (PR #1: PASS, ~6 min)
 - [ ] 8.6 Compare 2–3 free models
 
 ## Phase 9 — Observability
