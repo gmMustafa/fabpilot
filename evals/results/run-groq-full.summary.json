@@ -70,6 +70,57 @@
       "errored": 0
     }
   },
+  "by_tag": {
+    "typical": {
+      "n": 8,
+      "correct": 8,
+      "acceptable": 0,
+      "wrong": 0,
+      "errored": 0
+    },
+    "mild": {
+      "n": 8,
+      "correct": 5,
+      "acceptable": 1,
+      "wrong": 2,
+      "errored": 0
+    },
+    "advanced": {
+      "n": 8,
+      "correct": 7,
+      "acceptable": 0,
+      "wrong": 1,
+      "errored": 0
+    },
+    "drift": {
+      "n": 11,
+      "correct": 8,
+      "acceptable": 0,
+      "wrong": 3,
+      "errored": 0
+    },
+    "control": {
+      "n": 9,
+      "correct": 9,
+      "acceptable": 0,
+      "wrong": 0,
+      "errored": 0
+    },
+    "trap": {
+      "n": 10,
+      "correct": 10,
+      "acceptable": 0,
+      "wrong": 0,
+      "errored": 0
+    },
+    "smoke": {
+      "n": 7,
+      "correct": 7,
+      "acceptable": 0,
+      "wrong": 0,
+      "errored": 0
+    }
+  },
   "diagnosed_by": {
     "groq:gpt-oss-120b": 51
   },

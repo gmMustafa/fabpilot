@@ -26,6 +26,7 @@ def make(**over: Any) -> Summary:
         "work_order_ok": 1.0,
         "tools_ok": 1.0,
         "by_fault": {},
+        "by_tag": {},
         "diagnosed_by": {},
         "requests": 20,
         "tokens": 36000,

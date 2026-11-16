@@ -14,8 +14,10 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict
 
 from agent_evals import judge, results
-from agent_evals.grade import Grade, grade
+from agent_evals.grade import DIFFICULTIES, Grade, grade
 from agent_evals.scenario import Scenario
+
+TAGS = (*DIFFICULTIES, "drift", "control", "trap", "smoke")  # the report's groups, same order
 
 
 def rate(part: int, whole: int) -> float | None:
@@ -62,6 +64,7 @@ class Summary(BaseModel):
     work_order_ok: float | None
     tools_ok: float | None
     by_fault: dict[str, Counts]  # "none" = the controls
+    by_tag: dict[str, Counts]  # difficulties, drift, control, trap, smoke (those present)
     diagnosed_by: dict[str, int]  # final-hypothesis model -> scenarios
     requests: int
     tokens: int
@@ -133,6 +136,7 @@ def summarize(
             f: _count([g for g in grades if (g.fault or "none") == f])
             for f in sorted({g.fault or "none" for g in grades})
         },
+        by_tag={t: _count(chosen) for t in TAGS if (chosen := [g for g in grades if t in g.tags])},
         diagnosed_by=dict(Counter(results.diagnosed_by(r) for r in known if r.completed)),
         requests=sum(r.usage.provider_requests for r in known),
         tokens=sum(r.usage.tokens for r in known),

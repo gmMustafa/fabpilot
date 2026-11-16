@@ -42,10 +42,7 @@ def _group_table(grades: list[Grade]) -> list[str]:
             (f"fault: {f}", lambda g, f=f: g.fault == f)
             for f in sorted({g.fault or "" for g in grades} - {""})
         ],
-        *[
-            (t, lambda g, t=t: t in g.tags)
-            for t in (*DIFFICULTIES, "drift", "control", "trap", "smoke")
-        ],
+        *[(t, lambda g, t=t: t in g.tags) for t in summary.TAGS],
     ]
     lines = ["| group | n | correct | acceptable | wrong | errored |", "|---|---|---|---|---|---|"]
     for name, member in groups:
