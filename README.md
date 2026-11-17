@@ -97,7 +97,7 @@ Run `run-groq-full`: 51 of 51 scenarios, eval clock 2026-11-10 12:00 UTC; diagno
 | citations valid (retrieved, not invented) | 100 % |
 | citation recall (expected documents cited) | 87 % |
 | expected tools called | 100 % |
-| cost | 172 requests, 261,479 tokens, median 31 s per scenario |
+| cost | 164 requests, 261,221 tokens, median 28 s per scenario |
 
 | fault | n | correct | acceptable | wrong | errored |
 |---|---|---|---|---|---|

@@ -30,15 +30,19 @@ Accuracy = correct / completed. An allowed 'unknown' is acceptable, never correc
 
 ## Manifest
 
-- answered by: groq:openai/gpt-oss-120b (51 rows), groq:qwen/qwen3.8-27b (3 rows)
-- 51 row(s) recorded before manifests (answering model only)
-- ! INVALID: mixed models: groq:openai/gpt-oss-120b (51 rows), groq:qwen/qwen3.8-27b (3 rows)
+- answered by: groq:openai/gpt-oss-120b (51 rows)
+- routes groq:openai/gpt-oss-120b@low; temperature 0.2; agent 0650892b5f9a; commits 6ffea189, 708e4cd9
+- 48 row(s) recorded before manifests (answering model only)
+- one model, one configuration: comparable
 
 ## Repeats (every completed run, oldest first)
 
 | scenario | verdicts (model) | correct |
 |---|---|---|
+| gen-bearing-wear-cnc-mill-typical | correct (groq:gpt-oss-120b), correct (groq:gpt-oss-120b) | 2/2 (100 %) |
+| trap-drift-question-strainer-m09 | correct (groq:gpt-oss-120b), correct (groq:gpt-oss-120b) | 2/2 (100 %) |
 | trap-overload-question-belt-m04 | correct (groq:qwen3.8-27b), correct (groq:gpt-oss-120b) | 2/2 (100 %) |
+| trap-strainer-question-bearing-m09 | correct (groq:gpt-oss-120b), correct (groq:gpt-oss-120b) | 2/2 (100 %) |
 
 ! Some scenarios were answered by DIFFERENT models (fallback): their spread mixes model differences with run-to-run variance. Compare models with one route each.
 
@@ -71,14 +75,13 @@ Accuracy = correct / completed. An allowed 'unknown' is acceptable, never correc
 
 ## Cost
 
-- provider requests: 172 total, 3.4 per scenario
-- tokens: 261,479
-- wall time per scenario: median 31 s, p95 44 s
+- provider requests: 164 total, 3.2 per scenario
+- tokens: 261,221
+- wall time per scenario: median 28 s, p95 43 s
 
 | model | attempts ok | attempts failed |
 |---|---|---|
-| groq:openai/gpt-oss-120b | 90 | 79 |
-| groq:qwen/qwen3.8-27b | 3 | 0 |
+| groq:openai/gpt-oss-120b | 93 | 71 |
 
 ## Judge (LLM, root cause only)
 

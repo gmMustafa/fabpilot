@@ -124,9 +124,9 @@
   "diagnosed_by": {
     "groq:gpt-oss-120b": 51
   },
-  "requests": 172,
-  "tokens": 261479,
-  "median_seconds": 31.2,
+  "requests": 164,
+  "tokens": 261221,
+  "median_seconds": 28.1,
   "stale": 0,
   "judge": {
     "judged": 35,
@@ -135,11 +135,8 @@
     "calibrated": true
   },
   "answered_by": {
-    "groq:openai/gpt-oss-120b": 51,
-    "groq:qwen/qwen3.8-27b": 3
+    "groq:openai/gpt-oss-120b": 51
   },
-  "manifest_problems": [
-    "mixed models: groq:openai/gpt-oss-120b (51 rows), groq:qwen/qwen3.8-27b (3 rows)"
-  ],
-  "manifests_missing": 51
+  "manifest_problems": [],
+  "manifests_missing": 48
 }
