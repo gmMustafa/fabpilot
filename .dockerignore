@@ -1,0 +1,28 @@
+# Allowlist, not a blocklist: ignore EVERYTHING, then let in only what the images need.
+# A blocklist fails open (a new secret file or a 2 GB folder ships until someone notices);
+# an allowlist fails closed (a missing file breaks the build, loudly).
+*
+
+# The uv workspace: root manifest + lock, and every member's manifest (uv needs all members
+# to resolve the workspace, even those it doesn't install, e.g. evals).
+!pyproject.toml
+!uv.lock
+!evals/pyproject.toml
+
+# Python sources the image runs (api incl. Alembic migrations, the MCP servers, the simulator)
+!api/
+!simulator/
+!mcp/
+# Plant layout (seed, simulator) and the knowledge base (ingest)
+!data/
+
+# ...minus what is inside those folders but never belongs in an image
+**/tests/
+**/__pycache__/
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/.venv/
+# Defense in depth: no env file, wherever it sits, ever reaches the build context.
+**/.env
+**/.env.*
