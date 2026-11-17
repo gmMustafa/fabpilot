@@ -71,7 +71,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done (verified, quiz answered, 
 > Order (decided 2026-11-17): Phase 10 first, the 8.6 runs alongside it, Phase 9 afterwards —
 > tracing changes the agent code (agent_hash), so it must not land in the middle of the model comparison.
 
-- [ ] 10.1 Production Dockerfiles (multi-stage, non-root, multi-arch) — 10.1a done: one Python image (API + MCP servers + simulator), uid 10001, model baked in, 581 MB; next 10.1b multi-arch
+- [x] 10.1 Production Dockerfiles (multi-stage, non-root, multi-arch) — one Python image (API + MCP servers + simulator), uid 10001, model baked in, 580 MB; amd64 + arm64 build (arm64 tested under QEMU); a code release ships ~0.6 MB of layers, not 394 MB
 - [ ] 10.2 Full stack in docker-compose
 - [ ] 10.3 Kubernetes basics
 - [ ] 10.4 Helm chart

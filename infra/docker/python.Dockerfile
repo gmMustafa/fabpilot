@@ -6,6 +6,17 @@
 #   seed       python -m app.seed / app.rag.ingest
 #   simulator  simulator run
 # Build from the repo root:  docker build -f infra/docker/python.Dockerfile -t fabpilot-python:dev .
+#
+# Multi-arch (10.1b): the Oracle VM is arm64, laptops and CI runners amd64. Nothing in here is
+# arch-specific (prebuilt wheels exist for both, checked); arm64 builds under QEMU emulation,
+# ~4 min cold instead of ~1. The classic `docker` driver refuses multi-platform builds, so:
+#   docker buildx create --name fabpilot-multi --driver docker-container   # once
+#   docker buildx build --builder fabpilot-multi --platform linux/amd64,linux/arm64 \
+#       -f infra/docker/python.Dockerfile -t ghcr.io/<owner>/fabpilot-python:<tag> --push .
+# A local image store holds one platform per tag; to TEST arm64 locally, build it alone:
+#   docker buildx build --platform linux/arm64 -f infra/docker/python.Dockerfile \
+#       -t fabpilot-python:arm64 --load .
+#   docker run --rm --platform linux/arm64 fabpilot-python:arm64 uname -m      # aarch64
 
 # Tag for readability, digest for reproducibility (same rule as the DB image in docker-compose.yml).
 # Both are multi-arch indexes (amd64 + arm64), checked with `docker buildx imagetools inspect`.
@@ -17,8 +28,8 @@ ARG EMBEDDING_MODEL=BAAI/bge-small-en-v1.5
 
 FROM ${UV_IMAGE} AS uv
 
-# ------------------------------------------------------------------ builder: uv, venv, the model
-FROM ${PYTHON_IMAGE} AS builder
+# ------------------------------------------------------------------ deps: uv, venv, the model
+FROM ${PYTHON_IMAGE} AS deps
 COPY --from=uv /uv /usr/local/bin/uv
 
 # COMPILE_BYTECODE: .pyc files at build time, not at every container start (faster cold start,
@@ -54,9 +65,15 @@ RUN /app/.venv/bin/python -c "\
 from fastembed import TextEmbedding; \
 TextEmbedding('${EMBEDDING_MODEL}', cache_dir='/opt/fastembed')" \
     # The HF hub client writes some cache files 0600 (root only): seen as "Permission denied" when
-    # uid 10001 loaded the model. Readable for all, still writable by root only. In the BUILDER:
+    # uid 10001 loaded the model. Readable for all, still writable by root only. In this stage:
     # the runtime COPY then carries the right modes, no extra chmod layer in the final image.
     && chmod -R a+rX /opt/fastembed
+
+# ------------------------------------------------------------------ builder: + our code
+# A stage boundary, so the runtime can copy the venv from `deps` (changes only with the lock):
+# the sync below rewrites files in the venv, which gives the venv a new layer digest on EVERY
+# code change, even with identical content (measured).
+FROM deps AS builder
 
 # Layer 2, our code. EDITABLE on purpose (not --no-editable): config.py finds data/ and .env from
 # its own file location (parents[2] = the repo root); installed into site-packages, that would
@@ -69,6 +86,12 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync \
         --package fabpilot-api --package fabpilot-sensor-mcp \
         --package fabpilot-docs-mcp --package fabpilot-simulator
+# What that sync added to the venv, collected for the runtime (measured: 42 small files, the
+# whole rest of the venv is identical to deps'): the .pth files that put our source dirs on
+# sys.path, the dist-info metadata, and the console scripts.
+RUN cd /app/.venv && mkdir /workspace-install \
+    && cp -a --parents bin/simulator bin/sensor-mcp bin/docs-mcp \
+        lib/python3.12/site-packages/fabpilot_* /workspace-install/
 
 # ------------------------------------------------------------------ runtime: no uv, no caches
 FROM ${PYTHON_IMAGE} AS runtime
@@ -94,8 +117,18 @@ ENV PATH=/app/.venv/bin:$PATH \
     HF_HUB_OFFLINE=1
 WORKDIR /app/api
 
-COPY --from=builder /app /app
-COPY --from=builder /opt/fastembed /opt/fastembed
+# Separate layers, slowest-changing first: a release ships every layer whose DIGEST changed, and
+# the digest covers file timestamps, not only content. One `COPY /app` was one 394 MB layer, and
+# even split, a venv copied from `builder` changed digest on every code edit (that stage re-syncs
+# after the code). So: the big layers come from `deps` (they change with the lock), the code
+# straight from the build context, our 42 install files last.
+COPY --from=deps /opt/fastembed /opt/fastembed
+COPY --from=deps /app/.venv /app/.venv
+COPY data/ /app/data/
+COPY api/ /app/api/
+COPY simulator/ /app/simulator/
+COPY mcp/ /app/mcp/
+COPY --from=builder /workspace-install/ /app/.venv/
 
 EXPOSE 8000
 # For `docker run` / compose. Kubernetes ignores HEALTHCHECK: it uses its own probes (10.4).
