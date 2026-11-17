@@ -40,6 +40,15 @@ api:
       # No CPU limit on purpose: CPU over a limit is THROTTLED (slow, not killed), and a limit
       # would slow the embedding model on an otherwise idle node. The request still reserves it.
 
+# The initContainer `alembic upgrade head` of every pod that needs the schema (10.4c).
+migrate:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+
 # Non-secret settings, as env vars of every Python pod (a ConfigMap). Names = api/app/config.py.
 config:
   LOG_LEVEL: INFO

@@ -5,7 +5,7 @@ from typing import cast
 
 from alembic import context
 from pgvector.sqlalchemy import VECTOR
-from sqlalchemy import pool
+from sqlalchemy import pool, text
 from sqlalchemy.dialects.postgresql.base import PGDialect
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -17,6 +17,10 @@ from app.db.base import Base
 from app.runtime import run
 
 config = context.config
+# Advisory lock that serializes concurrent `alembic upgrade head` runs (10.4c: every pod that
+# needs the schema migrates in an initContainer). ASCII "FABPILOT": readable in pg_locks, fits a
+# signed bigint, and FIXED — every pod must ask for the same lock.
+MIGRATION_LOCK_ID = 0x46414250494C4F54
 
 if config.config_file_name is not None:
     # disable_existing_loggers=False: the default (True) silently DISABLES every logger that
@@ -111,6 +115,15 @@ def do_run_migrations(connection: Connection) -> None:
         include_name=include_name,  # ...but only the schemas we own
     )
     with context.begin_transaction():
+        # xact lock: released at COMMIT or ROLLBACK, so a failed or killed run leaves nothing
+        # behind. Before run_migrations(), which reads the current version only AFTER the wait:
+        # the second pod sees head and does nothing. Caveat: an autocommit_block() in a future
+        # migration (CREATE INDEX CONCURRENTLY) would commit mid-run and release the lock early.
+        connection.execute(
+            text("SELECT pg_advisory_xact_lock(:lock_id)"),
+            {"lock_id": MIGRATION_LOCK_ID},
+        )
+
         context.run_migrations()
 
 

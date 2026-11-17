@@ -26,6 +26,8 @@ spec:
     spec:
       # The API never talks to the Kubernetes API: no token mounted, nothing to steal.
       automountServiceAccountToken: false
+      initContainers:
+        {{- include "fabpilot.migrateInit" . | nindent 8 }}
       containers:
         - name: api
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"

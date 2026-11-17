@@ -1,11 +1,16 @@
 """Migration tests against a throwaway database (fixtures in conftest.py)."""
 
+import os
+import subprocess
+import sys
+
 import psycopg
 import pytest
 from alembic import command
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 
-from app.testing import libpq_url
+from app.testing import API_DIR, libpq_url, sqlalchemy_url
 
 EXPECTED_TABLES = {
     "machines",
@@ -61,3 +66,32 @@ def test_models_match_migrations(alembic_cfg: Config) -> None:
     """Fails if someone changes a model but forgets to write the migration (schema drift)."""
     command.upgrade(alembic_cfg, "head")
     command.check(alembic_cfg)  # raises if autogenerate would produce any operation
+
+
+def test_concurrent_upgrades_are_serialized(alembic_cfg: Config, temp_db_name: str) -> None:
+    """10.4c: every pod that needs the schema (api replicas, simulator, seed) runs `alembic
+    upgrade head` in an initContainer, so on a fresh install several start AT ONCE. Alembic has
+    no cross-process lock: without the advisory lock in env.py, two runs both see an empty DB and
+    both create the same tables -> one fails ("already exists"). With it: one migrates, the other
+    waits, then finds head and does nothing. Separate PROCESSES, like separate pods."""
+    env = {**os.environ, "DATABASE_URL": sqlalchemy_url(temp_db_name)}  # beats .env
+    runs = [
+        subprocess.Popen(
+            [sys.executable, "-m", "alembic", "upgrade", "head"],
+            cwd=API_DIR,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        for _ in range(3)
+    ]
+    outputs = [r.communicate(timeout=180)[0] for r in runs]
+
+    failed = [out[-600:] for r, out in zip(runs, outputs, strict=True) if r.returncode != 0]
+    assert not failed, "concurrent upgrades failed:\n" + "\n---\n".join(failed)
+    assert _tables(temp_db_name) == EXPECTED_TABLES
+    head = ScriptDirectory.from_config(alembic_cfg).get_current_head()
+    with psycopg.connect(libpq_url(temp_db_name), connect_timeout=5) as conn:
+        versions = conn.execute("SELECT version_num FROM alembic_version").fetchall()
+    assert versions == [(head,)]

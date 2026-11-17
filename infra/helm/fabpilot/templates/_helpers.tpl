@@ -69,3 +69,26 @@ securityContext:
   seccompProfile:
     type: RuntimeDefault
 {{- end -}}
+
+{{/*
+The migration as an initContainer (10.4c, option A), for every pod that needs the schema (api,
+simulator, seed). Not a pre-install hook: hooks run BEFORE the chart's normal resources exist,
+so on the first install the migration would wait for a DB that Helm creates only after the hook
+(deadlock). Several pods may run this at once: env.py serializes them with a Postgres advisory
+lock; the first migrates, the others find head and finish in ~1 s. A failure shows as
+Init:CrashLoopBackOff and the main container never starts against a half-migrated schema.
+Call with the root context: include "fabpilot.migrateInit" .
+*/}}
+{{- define "fabpilot.migrateInit" -}}
+- name: migrate
+  image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+  imagePullPolicy: {{ .Values.image.pullPolicy }}
+  command: ["alembic", "upgrade", "head"]
+  {{- include "fabpilot.pythonEnv" . | nindent 2 }}
+  {{- include "fabpilot.containerSecurity" . | nindent 2 }}
+  resources:
+    {{- toYaml .Values.migrate.resources | nindent 4 }}
+  volumeMounts:
+    - name: tmp
+      mountPath: /tmp
+{{- end -}}
