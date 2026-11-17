@@ -72,7 +72,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done (verified, quiz answered, 
 > tracing changes the agent code (agent_hash), so it must not land in the middle of the model comparison.
 
 - [x] 10.1 Production Dockerfiles (multi-stage, non-root, multi-arch) — one Python image (API + MCP servers + simulator), uid 10001, model baked in, 580 MB; amd64 + arm64 build (arm64 tested under QEMU); a code release ships ~0.6 MB of layers, not 394 MB
-- [ ] 10.2 Full stack in docker-compose
+- [x] 10.2 Full stack in docker-compose — db → migrate (one-off, exit 0) → api (healthy); seed / simulator as profiles; RAM measured: ~0.55 GB per investigation (the docs MCP subprocess loads the model, ~330 MB)
 - [ ] 10.3 Kubernetes basics
 - [ ] 10.4 Helm chart
 - [ ] 10.5 k3s on Oracle Cloud + TLS

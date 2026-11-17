@@ -44,6 +44,15 @@ pnpm install
 pnpm dev
 ```
 
+Or the whole backend in Docker (no uv needed; the same database, step 1's `.env`):
+
+```bash
+docker compose up -d --build                    # db -> migrate (runs once, exits 0) -> api
+docker compose --profile setup run --rm seed    # plant, sensors, knowledge base (idempotent)
+docker compose --profile sim up -d simulator    # optional: live readings
+# history and faults: `docker compose run --rm api simulator backfill --days 7`, `... inject ...`
+```
+
 ```bash
 # Show a fault (seconds: the history is written at once, no waiting)
 cd api

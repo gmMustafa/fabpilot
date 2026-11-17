@@ -1,5 +1,28 @@
-# Local development stack. Values come from .env (compose reads it automatically for ${VAR} interpolation).
+# The backend stack (10.2). Values come from .env (compose reads it automatically for ${VAR}
+# interpolation, and env_file below passes it into the Python containers).
+#
+#   docker compose up -d --build                     db -> migrate (exits 0) -> api (healthy)
+#   docker compose --profile setup run --rm seed     plant + sensors + knowledge base (idempotent)
+#   docker compose --profile sim up -d simulator     live readings every 10 s
+#
+# The dev path (`uv run ...` against this same db) keeps working: only `db` publishes 5433.
 name: fabpilot
+
+# One image for every Python service, built once (infra/docker/python.Dockerfile); only the
+# command differs. `x-` keys are ignored by compose itself: they exist to be referenced (&/*).
+x-python: &python
+  image: fabpilot-python:${IMAGE_TAG:-dev}
+  # Built by `api` only (below); the others must never try to PULL a local-only tag.
+  pull_policy: never
+  env_file: .env
+  environment: &python-env
+    # environment: WINS over env_file. .env's DATABASE_URL points at 127.0.0.1:5433 for `uv run`
+    # on your machine; in a container that's the container itself. `db` is the service's DNS
+    # name on the compose network, 5432 its port INSIDE that network. The password goes into a
+    # URL here: characters like @ / : # in POSTGRES_PASSWORD would have to be %-encoded.
+    DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+    # The model baked into the image; an EMBEDDING_CACHE_DIR in .env (a Windows path) must not win.
+    EMBEDDING_CACHE_DIR: /opt/fastembed
 
 services:
   db:
@@ -19,14 +42,58 @@ services:
     volumes:
       # This image keeps PGDATA at /home/postgres/pgdata/data (NOT /var/lib/postgresql/data).
       - pgdata:/home/postgres/pgdata
-    # Schema (incl. CREATE EXTENSION) is managed by Alembic migrations, not init scripts:
-    #   cd api && uv run alembic upgrade head
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
       timeout: 3s
       retries: 10
       start_period: 10s
+    restart: unless-stopped
+
+  # Schema changes, ONCE per `up`, then exit 0. Not inside the API's startup: with two API
+  # replicas, two processes would migrate at the same time. Kubernetes: a Job / Helm hook (10.4).
+  migrate:
+    <<: *python
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    <<: *python
+    build:
+      context: .
+      dockerfile: infra/docker/python.Dockerfile
+    pull_policy: build
+    ports:
+      # API_PORT: the host side. Default 8000, the same as `uv run uvicorn`: run one or the other.
+      - "127.0.0.1:${API_PORT:-8000}:8000"
+    depends_on:
+        db:
+          condition: service_healthy
+        migrate:
+          condition: service_completed_successfully
+    restart: unless-stopped
+
+  # One-off setup: `docker compose --profile setup run --rm seed`. Both steps are idempotent.
+  seed:
+    <<: *python
+    profiles: [setup]
+    command: ["sh", "-c", "python -m app.seed && python -m app.rag.ingest"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: "no"
+
+  # Live sensor readings every 10 s: `docker compose --profile sim up -d simulator`.
+  simulator:
+    <<: *python
+    profiles: [sim]
+    command: ["simulator", "run"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
     restart: unless-stopped
 
 volumes:
