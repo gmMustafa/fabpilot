@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "fabpilot.fullname" . }}-config
+  labels:
+    {{- include "fabpilot.labels" (dict "ctx" . "component" "config") | nindent 4 }}
+data:
+  {{- range $key, $value := .Values.config }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}
+  # From api: values, so concurrency and the memory limit are set in ONE place (values.yaml).
+  AGENT_MAX_CONCURRENT_RUNS: {{ .Values.api.maxConcurrentRuns | quote }}
+  # The model baked into the image (10.1); HF_HUB_OFFLINE is set there too.
+  EMBEDDING_CACHE_DIR: /opt/fastembed

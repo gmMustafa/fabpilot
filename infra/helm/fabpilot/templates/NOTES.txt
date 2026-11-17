@@ -1,0 +1,13 @@
+FabPilot {{ .Chart.AppVersion }} (chart {{ .Chart.Version }}), release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+1. The pods read the Secret "{{ .Values.existingSecret }}". If it doesn't exist yet, they wait in
+   CreateContainerConfigError. Create it (values never go into git or into Helm values):
+     kubectl -n {{ .Release.Namespace }} create secret generic {{ .Values.existingSecret }} \
+       --from-literal=POSTGRES_PASSWORD=<password> --from-literal=GROQ_API_KEY=<key>
+
+2. Watch the rollout:
+     kubectl -n {{ .Release.Namespace }} get pods -l app.kubernetes.io/instance={{ .Release.Name }} -w
+
+3. Reach the API without an Ingress:
+     kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "fabpilot.fullname" . }}-api 8000:8000
+     curl http://127.0.0.1:8000/health

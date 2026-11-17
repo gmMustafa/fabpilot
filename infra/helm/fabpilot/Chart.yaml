@@ -1,0 +1,12 @@
+# The FabPilot backend on Kubernetes (10.4): api now; db, migrate, simulator, ingress in 10.4c.
+#   helm lint infra/helm/fabpilot
+#   helm template fabpilot infra/helm/fabpilot            # render without a cluster
+#   helm upgrade --install fabpilot infra/helm/fabpilot   # 10.4d
+apiVersion: v2 # the chart format of Helm 3 and 4
+name: fabpilot
+description: AI maintenance copilot for factories (backend; synthetic demo data)
+type: application
+# version: the CHART's own version (bump when templates/values change).
+# appVersion: what it deploys; informational, the image tag comes from values.image.tag.
+version: 0.1.0
+appVersion: "0.1.0"

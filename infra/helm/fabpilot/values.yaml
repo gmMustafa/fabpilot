@@ -1,0 +1,50 @@
+# Defaults. An environment overrides only what differs: helm upgrade ... -f values-oracle.yaml
+# Rule: a value for what really DIFFERS between environments, not for everything.
+
+image:
+  # The one Python image (10.1): api, migrate, seed, simulator differ only in their command.
+  repository: fabpilot-python # 10.6: ghcr.io/<owner>/fabpilot-python
+  tag: dev
+  # IfNotPresent: Docker Desktop's Kubernetes sees the local image store (10.4d). With a
+  # registry and immutable tags (a commit SHA, 10.6) this stays right; never deploy `latest`.
+  pullPolicy: IfNotPresent
+
+# The Secret is NOT part of the chart: only its name is. Create it once, outside git and outside
+# Helm's release history (Helm stores rendered values in the cluster):
+#   kubectl create secret generic fabpilot-secrets \
+#     --from-literal=POSTGRES_PASSWORD=... --from-literal=GROQ_API_KEY=...
+# Keys the pods read: POSTGRES_PASSWORD (required), GROQ_API_KEY / OPENROUTER_API_KEY (the
+# providers your llmFallbacks name).
+existingSecret: fabpilot-secrets
+
+database:
+  # host: empty = the chart's own Postgres StatefulSet (10.4c), "<release>-db".
+  host: ""
+  port: 5432
+  name: fabpilot
+  user: fabpilot
+
+api:
+  replicas: 1
+  # Measured in 10.2: ~130 MB at rest, ~0.55 GB per investigation (each run starts a docs MCP
+  # subprocess that loads the embedding model, ~330 MB). Limit and concurrency belong TOGETHER:
+  # 2 concurrent runs need ~1.2 GB, so raising one without the other is half a fix. Over the
+  # limit = OOMKilled (exit 137), no Python traceback.
+  maxConcurrentRuns: 2
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      memory: 1536Mi
+      # No CPU limit on purpose: CPU over a limit is THROTTLED (slow, not killed), and a limit
+      # would slow the embedding model on an otherwise idle node. The request still reserves it.
+
+# Non-secret settings, as env vars of every Python pod (a ConfigMap). Names = api/app/config.py.
+config:
+  LOG_LEVEL: INFO
+  # The dashboard's origin (Vercel in 10.6); comma-separated, never "*".
+  CORS_ORIGINS: http://localhost:3000
+  # One route = what was evaluated (8.5 baseline); add fallbacks for the product if you like.
+  LLM_FALLBACKS: groq:openai/gpt-oss-120b@low
+  LLM_CACHE_ENABLED: "true"
