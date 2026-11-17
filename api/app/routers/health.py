@@ -42,3 +42,25 @@ async def health(
         return HealthResponse(status="degraded", db="error")
 
     return HealthResponse(status="ok", db="ok")
+
+
+class LivenessResponse(BaseModel):
+    status: Literal["alive"]
+
+
+@router.get(
+    "/livez",
+    response_model=LivenessResponse,
+    # For the kubelet, not for the dashboard: kept out of the OpenAPI contract (6.3), so the
+    # generated frontend types don't change for an endpoint no client calls.
+    include_in_schema=False,
+)
+async def livez() -> LivenessResponse:
+    """Liveness (10.4): "does this process still answer?" Touches NO dependency, on purpose.
+
+    Kubernetes RESTARTS a pod whose liveness probe fails. /health checks the DB, so as liveness a
+    DB outage would restart every healthy API pod in a loop — fixing nothing. /health is the
+    READINESS probe (out of the Service, not restarted); this one only fails when the event loop
+    is stuck, the one case a restart does fix.
+    """
+    return LivenessResponse(status="alive")

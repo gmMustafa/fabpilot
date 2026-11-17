@@ -40,6 +40,26 @@ async def test_health_returns_503_when_db_unreachable(unreachable_engine: AsyncE
     assert body == {"status": "degraded", "db": "error"}
 
 
+async def test_livez_ignores_the_database(unreachable_engine: AsyncEngine) -> None:
+    """Liveness must stay 200 while the DB is down: a failing liveness probe RESTARTS the pod,
+    which can't fix a database outage (that's readiness' job: /health -> 503 above)."""
+    app.dependency_overrides[get_engine] = lambda: unreachable_engine
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get("/livez")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "alive"}
+
+
+def test_livez_is_not_in_the_api_contract() -> None:
+    """An infrastructure endpoint: it must not change openapi.json or the frontend's types."""
+    assert "/livez" not in app.openapi()["paths"]
+
+
 @pytest.mark.integration
 async def test_health_ok_with_real_db() -> None:
     """Needs `docker compose up -d` and DATABASE_URL in .env."""
