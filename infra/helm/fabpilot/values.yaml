@@ -64,6 +64,35 @@ migrate:
     limits:
       memory: 512Mi
 
+simulator:
+  enabled: false # live readings every 10 s; the seeded history is enough for the demo
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 384Mi
+
+# A post-install/post-upgrade hook Job: plant + knowledge base (idempotent).
+seed:
+  enabled: true
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      memory: 1Gi # ingest loads the embedding model (~330 MB measured in 10.2)
+
+ingress:
+  enabled: false # locally: kubectl port-forward (NOTES); on k3s (10.5): true + host + TLS
+  className: traefik # k3s ships Traefik as its ingress controller
+  host: ""
+  annotations: {}
+  # e.g. cert-manager.io/cluster-issuer: letsencrypt (10.5)
+  tls:
+    enabled: false
+    secretName: fabpilot-api-tls # cert-manager writes the certificate into this Secret
+
 # Non-secret settings, as env vars of every Python pod (a ConfigMap). Names = api/app/config.py.
 config:
   LOG_LEVEL: INFO

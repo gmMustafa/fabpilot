@@ -1,0 +1,32 @@
+{{- if .Values.ingress.enabled }}
+# The way in from outside: https://<host>/ -> Service api. Off by default (port-forward locally);
+# on k3s (10.5): className traefik, a real host, and TLS via cert-manager's annotation.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "fabpilot.fullname" . }}-api
+  labels:
+    {{- include "fabpilot.labels" (dict "ctx" . "component" "api") | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts: [{{ required "ingress.host is required when the ingress is enabled" .Values.ingress.host | quote }}]
+      secretName: {{ .Values.ingress.tls.secretName }}
+  {{- end }}
+  rules:
+    - host: {{ required "ingress.host is required when the ingress is enabled" .Values.ingress.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "fabpilot.fullname" . }}-api
+                port:
+                  name: http
+{{- end }}

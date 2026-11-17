@@ -1,0 +1,47 @@
+{{- if .Values.simulator.enabled }}
+# Live sensor readings every 10 s (`simulator run`). Off by default: the demo works from the seeded
+# history; switch it on for a plant that keeps moving.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "fabpilot.fullname" . }}-simulator
+  labels:
+    {{- include "fabpilot.labels" (dict "ctx" . "component" "simulator") | nindent 4 }}
+spec:
+  replicas: 1 # never more: two simulators would write every reading twice
+  # Recreate, not RollingUpdate: a rolling update briefly runs old AND new pod = double writes.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "fabpilot.selectorLabels" (dict "ctx" . "component" "simulator") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "fabpilot.labels" (dict "ctx" . "component" "simulator") | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      automountServiceAccountToken: false
+      initContainers:
+        {{- include "fabpilot.migrateInit" . | nindent 8 }}
+      containers:
+        - name: simulator
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["simulator", "run"]
+          {{- include "fabpilot.pythonEnv" . | nindent 10 }}
+          {{- include "fabpilot.containerSecurity" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.simulator.resources | nindent 12 }}
+          # No probes: no HTTP port, and a crash exits the process, which restarts the pod anyway.
+          # It needs the seeded plant: on the very first install it may restart until the seed
+          # hook has run (CrashLoopBackOff for a minute or two, then fine).
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+{{- end }}

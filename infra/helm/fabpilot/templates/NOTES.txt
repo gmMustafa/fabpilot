@@ -5,6 +5,13 @@ FabPilot {{ .Chart.AppVersion }} (chart {{ .Chart.Version }}), release "{{ .Rele
      kubectl -n {{ .Release.Namespace }} create secret generic {{ .Values.existingSecret }} \
        --from-literal=POSTGRES_PASSWORD=<password> --from-literal=GROQ_API_KEY=<key>
 
+{{- if .Values.seed.enabled }}
+   The seed hook (plant + knowledge base) runs after install/upgrade; the first ingest embeds
+   every document on CPU, so give Helm time: helm upgrade --install ... --timeout 15m
+   Sensor history (once, by hand; ~3M rows for 7 days):
+     kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "fabpilot.fullname" . }}-api -- simulator backfill --days 7
+{{- end }}
+
 2. Watch the rollout:
      kubectl -n {{ .Release.Namespace }} get pods -l app.kubernetes.io/instance={{ .Release.Name }} -w
 

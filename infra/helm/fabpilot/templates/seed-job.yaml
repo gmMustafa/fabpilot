@@ -1,0 +1,51 @@
+{{- if .Values.seed.enabled }}
+# The plant (machines + sensors) and the knowledge base (embedded docs), after every install and
+# upgrade. A POST hook: by then the DB StatefulSet exists (pre-hooks run before it, 10.4c-1). Both
+# steps are idempotent (seeded rows are upserted, unchanged documents skipped), so running it on
+# every upgrade is cheap and picks up new docs. The 7-day history backfill (~3M rows) is NOT in
+# here: too heavy for every upgrade, run it once by hand (see NOTES).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "fabpilot.fullname" . }}-seed
+  labels:
+    {{- include "fabpilot.labels" (dict "ctx" . "component" "seed") | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    # before-hook-creation: the previous run's Job is deleted when the next one starts, so a
+    # FAILED seed stays around for `kubectl logs` until then (hook-succeeded would hide nothing,
+    # but also show nothing about the last good run).
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  # 6, not 2: on the first install this hook can start while the DB still runs initdb (30-60 s),
+  # and in a Job (restartPolicy Never) every failed migrate init is a failed POD. The pod backoff
+  # (10, 20, 40, 80, 160 s) then covers ~5 min; the api pod (restartPolicy Always) just retries.
+  backoffLimit: 6
+  # The first ingest embeds every chunk on CPU; Helm waits for this hook (helm --timeout).
+  activeDeadlineSeconds: 900
+  template:
+    metadata:
+      labels:
+        {{- include "fabpilot.labels" (dict "ctx" . "component" "seed") | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      initContainers:
+        {{- include "fabpilot.migrateInit" . | nindent 8 }}
+      containers:
+        - name: seed
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["sh", "-c", "python -m app.seed && python -m app.rag.ingest"]
+          {{- include "fabpilot.pythonEnv" . | nindent 10 }}
+          {{- include "fabpilot.containerSecurity" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.seed.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+{{- end }}
