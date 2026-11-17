@@ -1,0 +1,140 @@
+{{- /*
+The chart's own Postgres (TimescaleDB + pgvector), unless database.host points at an external one
+(a managed DB): then none of this is rendered. A StatefulSet, not a Deployment: a stable name
+(<release>-db-0) and its OWN disk that survives the pod (volumeClaimTemplates).
+*/ -}}
+{{- if not .Values.database.host }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "fabpilot.fullname" . }}-db
+  labels:
+    {{- include "fabpilot.labels" (dict "ctx" . "component" "db") | nindent 4 }}
+spec:
+  serviceName: {{ include "fabpilot.fullname" . }}-db
+  replicas: 1 # one primary; replication would be a different design (an operator), not replicas: 2
+  selector:
+    matchLabels:
+      {{- include "fabpilot.selectorLabels" (dict "ctx" . "component" "db") | nindent 6 }}
+  # `helm uninstall` (or deleting the StatefulSet) must never delete the data: the PVC stays.
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
+  template:
+    metadata:
+      labels:
+        {{- include "fabpilot.labels" (dict "ctx" . "component" "db") | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        # The image's user is `postgres` = uid/gid 1000 (checked with `id` in the image), set by
+        # NAME, which runAsNonRoot can't verify: hence the explicit numbers.
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        # fsGroup: the volume is made group-writable for gid 1000, or postgres can't write a
+        # freshly provisioned (root-owned) disk. OnRootMismatch: skip the recursive chown on
+        # every restart once the root of the volume is right (fast with GBs of data).
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgres
+          image: {{ .Values.db.image | quote }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: {{ .Values.database.user | quote }}
+            - name: POSTGRES_DB
+              value: {{ .Values.database.name | quote }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: POSTGRES_PASSWORD
+          securityContext:
+            allowPrivilegeEscalation: false
+            # Tested with `docker run --read-only` (10.4c): Postgres needs only the volumes below.
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- toYaml .Values.db.resources | nindent 12 }}
+          # pg_isready over the local socket: "accepting connections". The first start runs
+          # initdb (+ extensions), which takes longer than any later start: startup allows 150 s.
+          startupProbe:
+            exec:
+              command: ["pg_isready", "-U", {{ .Values.database.user | quote }}, "-d", {{ .Values.database.name | quote }}]
+            periodSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", {{ .Values.database.user | quote }}, "-d", {{ .Values.database.name | quote }}]
+            periodSeconds: 10
+            timeoutSeconds: 5
+          # Liveness only after long silence: restarting a database mid-recovery makes it worse.
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", {{ .Values.database.user | quote }}, "-d", {{ .Values.database.name | quote }}]
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 6
+          volumeMounts:
+            - name: data
+              mountPath: /home/postgres/pgdata # PGDATA = .../pgdata/data (this image)
+            - name: run
+              mountPath: /var/run/postgresql # the socket
+            - name: log
+              mountPath: /home/postgres/pg_log
+            - name: tmp
+              mountPath: /tmp
+            # Postgres uses /dev/shm for parallel queries; the container default is 64 MB, a
+            # classic "could not resize shared memory segment" under load.
+            - name: shm
+              mountPath: /dev/shm
+      volumes:
+        - name: run
+          emptyDir: {}
+        - name: log
+          emptyDir:
+            sizeLimit: 256Mi
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 256Mi
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- with .Values.db.storageClassName }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.db.storage }}
+---
+# Headless (clusterIP: None): a DNS name that resolves straight to the pod, for a StatefulSet.
+# `<release>-db` is what DATABASE_URL points at (fabpilot.dbHost).
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "fabpilot.fullname" . }}-db
+  labels:
+    {{- include "fabpilot.labels" (dict "ctx" . "component" "db") | nindent 4 }}
+spec:
+  clusterIP: None
+  selector:
+    {{- include "fabpilot.selectorLabels" (dict "ctx" . "component" "db") | nindent 4 }}
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+{{- end }}

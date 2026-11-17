@@ -74,7 +74,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done (verified, quiz answered, 
 - [x] 10.1 Production Dockerfiles (multi-stage, non-root, multi-arch) — one Python image (API + MCP servers + simulator), uid 10001, model baked in, 580 MB; amd64 + arm64 build (arm64 tested under QEMU); a code release ships ~0.6 MB of layers, not 394 MB
 - [x] 10.2 Full stack in docker-compose — db → migrate (one-off, exit 0) → api (healthy); seed / simulator as profiles; RAM measured: ~0.55 GB per investigation (the docs MCP subprocess loads the model, ~330 MB)
 - [x] 10.3 Kubernetes basics — objects mapped onto the compose stack; probes (readiness = /health, liveness must NOT check the DB → needs a cheap endpoint, 10.4); resources from the measured RAM
-- [ ] 10.4 Helm chart — 10.4a done: /livez (liveness without dependency checks); 10.4b done: chart skeleton, api Deployment + Service + ConfigMap, probes; 10.4c-1 done: advisory lock serializes concurrent migrations, migrate as an initContainer (not a hook: pre-install deadlock); next 10.4c-2 db StatefulSet
+- [ ] 10.4 Helm chart — 10.4a done: /livez (liveness without dependency checks); 10.4b done: chart skeleton, api Deployment + Service + ConfigMap, probes; 10.4c-1 done: advisory lock serializes concurrent migrations, migrate as an initContainer (not a hook: pre-install deadlock); 10.4c-2 done: Postgres StatefulSet (PVC retained, read-only root, uid 1000); next 10.4c-3 simulator, seed hook, ingress
 - [ ] 10.5 k3s on Oracle Cloud + TLS
 - [ ] 10.6 Vercel frontend + GHCR deploy pipeline
 

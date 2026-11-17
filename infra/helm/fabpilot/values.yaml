@@ -24,6 +24,21 @@ database:
   name: fabpilot
   user: fabpilot
 
+# The chart's own Postgres (templates/db.yaml); ignored when database.host is set.
+db:
+  # Same image and digest as docker-compose.yml (multi-arch: amd64 + arm64). Bump both together.
+  image: timescale/timescaledb-ha:pg16@sha256:633aa83c3aabab7ca16745bc2506199a4f8de2faa87006d13f60b82911b512c6
+  # The dev DB measured 1.5 GB with 7 days of history (~3M readings). 10Gi leaves room for the
+  # live simulator; Oracle's free tier has 200 GB of block storage in total.
+  storage: 10Gi
+  storageClassName: "" # empty = the cluster's default (k3s: local-path)
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+
 api:
   replicas: 1
   # Measured in 10.2: ~130 MB at rest, ~0.55 GB per investigation (each run starts a docs MCP
