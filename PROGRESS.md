@@ -64,7 +64,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done (verified, quiz answered, 
 - [ ] 8.6 Compare 2–3 free models
 
 ## Phase 9 — Observability
-- [ ] 9.1 Self-hosted Langfuse
+- [ ] 9.1 Self-hosted Langfuse (as an optional compose profile: `--profile observability`)
 - [ ] 9.2 Structured JSON logging + request IDs
 
 ## Phase 10 — Deployment
@@ -74,9 +74,16 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done (verified, quiz answered, 
 - [x] 10.1 Production Dockerfiles (multi-stage, non-root, multi-arch) — one Python image (API + MCP servers + simulator), uid 10001, model baked in, 580 MB; amd64 + arm64 build (arm64 tested under QEMU); a code release ships ~0.6 MB of layers, not 394 MB
 - [x] 10.2 Full stack in docker-compose — db → migrate (one-off, exit 0) → api (healthy); seed / simulator as profiles; RAM measured: ~0.55 GB per investigation (the docs MCP subprocess loads the model, ~330 MB)
 - [x] 10.3 Kubernetes basics — objects mapped onto the compose stack; probes (readiness = /health, liveness must NOT check the DB → needs a cheap endpoint, 10.4); resources from the measured RAM
-- [ ] 10.4 Helm chart — 10.4a done: /livez (liveness without dependency checks); 10.4b done: chart skeleton, api Deployment + Service + ConfigMap, probes; 10.4c-1 done: advisory lock serializes concurrent migrations, migrate as an initContainer (not a hook: pre-install deadlock); 10.4c done: Postgres StatefulSet (PVC retained, read-only root, uid 1000), simulator (Recreate), seed as a post-install/upgrade hook, ingress (off, host required); next 10.4d a real install on Docker Desktop Kubernetes
-- [ ] 10.5 k3s on Oracle Cloud + TLS
-- [ ] 10.6 Vercel frontend + GHCR deploy pipeline
+- [x] 10.4 Helm chart — verified on Docker Desktop Kubernetes (10.4d): first install deployed (db → api → seed hook), self-healing, a 43 h DB outage without a single api restart (readiness, not liveness), data kept by the PVC, upgrade (config checksum → rolling update) + rollback (revision 3). Sub-steps: 10.4a done: /livez (liveness without dependency checks); 10.4b done: chart skeleton, api Deployment + Service + ConfigMap, probes; 10.4c-1 done: advisory lock serializes concurrent migrations, migrate as an initContainer (not a hook: pre-install deadlock); 10.4c done: Postgres StatefulSet (PVC retained, read-only root, uid 1000), simulator (Recreate), seed as a post-install/upgrade hook, ingress (off, host required); next 10.4d a real install on Docker Desktop Kubernetes
+> Changed 2026-11-19: NO public deployment. A public instance would spend my free LLM quota for
+> anyone (bots included) and need auth, abuse protection and ongoing ops. Instead the repo is
+> self-hostable with the user's OWN keys, and my demo is a locally recorded GIF/video (Phase 11).
+> Deployment skill is proven in CI, not by hosting. Original 10.5 (k3s on Oracle + TLS) and
+> 10.6 (Vercel + GHCR deploy) are replaced by:
+
+- [ ] 10.5′ Chart tested in CI: throwaway kind cluster per PR, build image, `helm install`, check /health (no LLM key, $0) + `docs/self-hosting.md` (compose for most, Helm for a cluster, own keys, "don't expose without auth")
+- [ ] 10.6′ One-command self-hosting: Next.js dashboard as a container in compose + prebuilt multi-arch images on GHCR, built by CI
+- [ ] (optional) Replay mode without a key: a seeded LLM cache for 2–3 demo questions
 
 ## Phase 11 — Portfolio polish
 - [ ] 11.1 README
