@@ -9,6 +9,9 @@ incidents → root cause with citations → draft work order → human approval.
 > 🚧 Work in progress. Full README (architecture, eval results, design decisions) comes in Phase 11.
 > All plant data and documents are synthetic.
 
+**Just want to run it?** Prebuilt images, your own free key, Docker or Kubernetes:
+[docs/self-hosting.md](docs/self-hosting.md). There is no public instance on purpose.
+
 ## Quickstart (dev)
 
 Needs Docker, [uv](https://docs.astral.sh/uv/), Node 22 + pnpm, and a free
@@ -51,7 +54,7 @@ docker compose up -d --build                    # db -> migrate (runs once) -> a
                                                 # dashboard: http://localhost:3000
 docker compose --profile setup run --rm seed    # plant, sensors, knowledge base (idempotent)
 docker compose --profile sim up -d simulator    # optional: live readings
-# history and faults: `docker compose run --rm api simulator backfill --days 7`, `... inject ...`
+# history and faults: `docker compose exec api simulator backfill --days 7`, `... inject ...`
 ```
 
 ```bash
