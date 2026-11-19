@@ -1,0 +1,109 @@
+# The Helm chart on a REAL cluster, on every PR (10.5′): a throwaway kind cluster, the image built
+# from this commit, `helm install`, then the chart's own test (`helm test`). Proves deployment
+# without hosting anything (no public instance: PROGRESS 2026-11-19). No LLM key, no quota, $0.
+name: chart
+
+on:
+  pull_request:
+    paths: &paths
+      - ".github/workflows/chart.yml"
+      - ".dockerignore"
+      - "infra/helm/**"
+      - "infra/docker/python.Dockerfile"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "api/**"
+      - "simulator/**"
+      - "mcp/**"
+      - "data/**"
+  push:
+    branches: [main]
+    paths: *paths
+  workflow_dispatch:
+
+concurrency:
+  group: chart-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      RELEASE: fabpilot
+      NS: fabpilot
+      CHART: infra/helm/fabpilot
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The newest setup-helm release older than two weeks (v5.1.0 was 10 days old): a pinned SHA
+      # protects against a moved tag, the age against a hijacked fresh release.
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v4.3.2 # the same Helm as local dev
+
+      # Syntax first, fast: --strict turns lint warnings into failures.
+      - name: helm lint
+        run: helm lint --strict "$CHART"
+
+      # A whole Kubernetes cluster as one Docker container on the runner (~1 min).
+      - uses: helm/kind-action@ea822c7bf1874f08e5a491df991c228edffc3376 # v1.15.2
+        with:
+          cluster_name: fabpilot
+
+      # The image from THIS commit, amd64 only (the runner's arch), loaded into Docker (not pushed).
+      # Reads the images workflow's layer cache, so unchanged dependency layers aren't rebuilt.
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: build the image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: infra/docker/python.Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: fabpilot-python:ci
+          cache-from: |
+            type=gha,scope=python
+            type=gha,scope=python-chart
+          cache-to: type=gha,scope=python-chart,mode=max
+
+      # kind's nodes run their own containerd: they can't see the runner's Docker images (10.4d,
+      # ErrImageNeverPull). Copy the image in; pullPolicy Never below guarantees THIS one is used.
+      - name: load the image into kind
+        run: kind load docker-image fabpilot-python:ci --name fabpilot
+
+      # Dummy credentials: a fresh random DB password per run, and a placeholder LLM key — the API
+      # only checks at startup that the configured route's provider HAS a key; nothing calls it.
+      - name: secret
+        run: |
+          kubectl create namespace "$NS"
+          kubectl -n "$NS" create secret generic fabpilot-secrets \
+            --from-literal=POSTGRES_PASSWORD="$(openssl rand -hex 16)" \
+            --from-literal=GROQ_API_KEY=not-a-real-key-ci-makes-no-llm-calls
+
+      # A real install: every manifest goes through the API server's schema validation (which
+      # `helm lint` doesn't do), --wait waits for db, api ready and the seed hook.
+      - name: helm install
+        run: |
+          helm install "$RELEASE" "$CHART" -n "$NS" \
+            --set image.tag=ci --set image.pullPolicy=Never \
+            --wait --timeout 10m
+
+      - name: helm test
+        run: helm test "$RELEASE" -n "$NS" --logs --timeout 5m
+
+      # A red run must explain itself: pods, events, and every container's logs.
+      - name: debug output
+        if: failure()
+        run: |
+          kubectl -n "$NS" get all,pvc,jobs -o wide || true
+          kubectl -n "$NS" get events --sort-by=.lastTimestamp | tail -40 || true
+          for p in $(kubectl -n "$NS" get pods -o name); do
+            echo "::group::$p"
+            kubectl -n "$NS" describe "$p" | tail -30 || true
+            kubectl -n "$NS" logs "$p" --all-containers --tail=80 || true
+            echo "::endgroup::"
+          done
