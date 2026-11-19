@@ -1,0 +1,76 @@
+{{- /*
+The chart's own smoke test (10.5′): `helm test <release>`. A `test` hook is NOT installed with the
+release; it runs only on `helm test`, as a pod inside the cluster, so it sees the API exactly as
+other pods do (through the Service). CI runs it on a throwaway kind cluster (.github/workflows/
+chart.yml); a self-hoster can run the same check on their own cluster. No LLM call: $0, no key.
+*/ -}}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "fabpilot.fullname" . }}-smoke
+  labels:
+    {{- include "fabpilot.labels" (dict "ctx" . "component" "smoke-test") | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+    # The previous test pod is replaced on the next `helm test`; a failed one stays for `kubectl logs`.
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  restartPolicy: Never # a test runs once: pass or fail, never retried into a false green
+  automountServiceAccountToken: false
+  containers:
+    - name: smoke
+      # Our own Python image: it is already on the node, and it has Python (no curl in it, 10.1).
+      image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+      imagePullPolicy: {{ .Values.image.pullPolicy }}
+      {{- include "fabpilot.containerSecurity" . | nindent 6 }}
+      resources:
+        requests:
+          cpu: 50m
+          memory: 64Mi
+        limits:
+          memory: 128Mi
+      env:
+        # The API as other pods see it: the Service of templates/api.yaml, by cluster DNS.
+        # Not 127.0.0.1 (that's this pod) and not a port-forward.
+        - name: API_URL
+          value: "http://{{ include "fabpilot.fullname" . }}-api:8000"
+      command: ["python", "-c"]
+      args:
+        - |
+          import json
+          import os
+          from urllib.request import urlopen
+
+          base_url = os.environ["API_URL"].rstrip("/")
+
+          def check(ok, message):
+              # Not `assert`: `python -O` strips asserts, and a test exists to fail.
+              if not ok:
+                  raise SystemExit("FAIL: " + message)
+
+          def get(path):
+              url = base_url + path
+              print(f"GET {url}", flush=True)
+              # urlopen raises HTTPError on 4xx/5xx (e.g. /health's 503): that fails the test too.
+              with urlopen(url, timeout=5) as response:
+                  check(response.status == 200, f"{path}: expected 200, got {response.status}")
+                  return json.load(response)
+
+          # 1. The API process is alive
+          get("/livez")
+          print("PASS: /livez returned 200", flush=True)
+
+          # 2. The API reaches PostgreSQL
+          health = get("/health")
+          check(health.get("status") == "ok", f"unexpected health response: {health}")
+          print("PASS: /health returned status=ok", flush=True)
+
+          # 3. Migrations AND the seed hook have run. 10 on purpose, not read from the plant:
+          # the test checks THIS chart with THIS plant (data/plant.yaml); if the plant changes,
+          # the test should notice and be updated deliberately.
+          machines = get("/machines")
+          check(isinstance(machines, list), f"expected a machine list, got: {machines}")
+          check(len(machines) == 10, f"expected 10 machines, got {len(machines)}")
+          print("PASS: /machines returned 10 machines", flush=True)
+
+          print("All smoke tests passed", flush=True)

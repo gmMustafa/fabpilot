@@ -81,7 +81,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done (verified, quiz answered, 
 > Deployment skill is proven in CI, not by hosting. Original 10.5 (k3s on Oracle + TLS) and
 > 10.6 (Vercel + GHCR deploy) are replaced by:
 
-- [ ] 10.5′ Chart tested in CI: throwaway kind cluster per PR, build image, `helm install`, check /health (no LLM key, $0) + `docs/self-hosting.md` (compose for most, Helm for a cluster, own keys, "don't expose without auth")
+- [ ] 10.5′ (10.5′a written: chart.yml + `helm test` smoke pod; first PR run + red/green counter-test pending; 10.5′b self-hosting guide next) Chart tested in CI: throwaway kind cluster per PR, build image, `helm install`, check /health (no LLM key, $0) + `docs/self-hosting.md` (compose for most, Helm for a cluster, own keys, "don't expose without auth")
 - [x] 10.6′ One-command self-hosting: Next.js dashboard as a container in compose + prebuilt multi-arch images on GHCR, built by CI — 10.6′a done: web image (standalone, 267 MB, uid 1000), two API URLs (browser: build-time NEXT_PUBLIC_API_URL; server: runtime API_INTERNAL_URL); 10.6′b: images.yml (multi-arch to GHCR on main/v* tags, GITHUB_TOKEN, sha/latest/semver tags), compose can pull (IMAGE_REGISTRY, PULL_POLICY). First run: python 4.0 min, web 5.8 min for amd64 + arm64 under QEMU (native ARM runners not worth it); packages public, anonymous pull works; stranger test: `docker compose up` pulled both images, stack healthy, revision label = the commit
 - [ ] (optional) Replay mode without a key: a seeded LLM cache for 2–3 demo questions
 
