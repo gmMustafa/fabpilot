@@ -47,9 +47,9 @@ from app.gateway.types import (
 logger = logging.getLogger(__name__)
 
 
-# The default since 2.1, never tuned. Kept for the 8.6 comparison: the baseline ran with it.
-# The eval manifest records it, so a change shows up as a different configuration, never as
-# a better or worse model.
+# The default since 2.1, never tuned, for unstructured chat calls. NOT what the agent runs at:
+# every agent call goes through chat_structured, which uses STRUCTURED_TEMPERATURE (0.0). Until
+# 8.6b the eval manifest recorded this value by mistake (a mislabel, not a different run).
 DEFAULT_TEMPERATURE = 0.2
 
 

@@ -110,6 +110,12 @@ def schema_instruction(model: type[BaseModel]) -> str:
     )
 
 
+# The temperature of EVERY structured call, i.e. all four agent LLM calls and the eval judge:
+# deterministic-ish output for a schema. The eval manifest records this value (8.6b); before,
+# it recorded the gateway's DEFAULT_TEMPERATURE (0.2), which no agent call uses.
+STRUCTURED_TEMPERATURE = 0.0
+
+
 async def chat_structured[T: BaseModel](
     gateway: ChatModel,
     messages: list[ChatMessage],
@@ -118,16 +124,23 @@ async def chat_structured[T: BaseModel](
     purpose: str,
     max_tokens: int = 1200,
     spend: Spend | None = None,
+    cache: CachePolicy = CachePolicy.SHARED,
 ) -> Structured[T]:
     """Ask, parse, validate; on failure ask ONCE more, with the error. Raises
-    StructuredOutputError. Every gateway call, failed or not, is added to `spend`."""
+    StructuredOutputError. Every gateway call, failed or not, is added to `spend`.
+    `cache`: the prompt-cache policy, passed to the gateway as is (8.6b: the judge needs
+    PER_MODEL; the agent keeps the default)."""
     spend = spend if spend is not None else Spend()
     convo = [*messages, ChatMessage(role="user", content=schema_instruction(model))]
     error = ""
     for attempt in range(1 + MAX_REPAIRS):
         try:
             answer = await gateway.chat(
-                convo, max_tokens=max_tokens, temperature=0.0, purpose=purpose
+                convo,
+                max_tokens=max_tokens,
+                temperature=STRUCTURED_TEMPERATURE,
+                purpose=purpose,
+                cache=cache,
             )
         except LLMError as e:
             spend.add_failure(e)

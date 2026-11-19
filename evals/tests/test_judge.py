@@ -14,6 +14,7 @@ from agent_evals.results import Result
 from agent_evals.scenario import SCENARIOS, Scenario, load_scenarios
 from app.config import get_settings
 from app.db.models import FaultType
+from app.gateway.cache import CachePolicy
 from app.plant import load_plant
 from app.rag.corpus import load_corpus
 from app.runtime import run
@@ -136,6 +137,26 @@ def test_a_verdict_from_another_judge_model_is_judged_again(
     assert run(judge.judge_run(ScriptedChat(), [result()], suite, out, both)) == (0, 1)
 
 
+class CacheRecordingChat:
+    """A fake gateway that records the prompt-cache policy of every call (ScriptedChat drops it)."""
+
+    def __init__(self, text: str) -> None:
+        self.text = text
+        self.policies: list[CachePolicy] = []
+
+    async def chat(self, messages: list[Any], **kw: Any) -> ScriptedChat.Reply:
+        self.policies.append(kw.get("cache", CachePolicy.SHARED))
+        return ScriptedChat.Reply(self.text)
+
+
+def test_the_judge_asks_the_gateway_per_model() -> None:
+    """8.6b: with SHARED (prompt-only key) a new judge got the old judge's cached answers for
+    identical prompts. PER_MODEL puts the configured models into the key."""
+    chat = CacheRecordingChat(verdict("correct"))
+    run(judge.judge_text(chat, "The bearing wears.", "spindle bearing wear"))
+    assert chat.policies == [CachePolicy.PER_MODEL]
+
+
 def test_a_verdict_without_a_recorded_model_is_judged_again(
     tmp_path: Path, suite: dict[str, Scenario]
 ) -> None:
@@ -223,8 +244,29 @@ def test_calibration_is_recorded_per_model_and_only_if_complete(tmp_path: Path) 
     assert judge.record_calibration(full, version="v1", path=path) == {
         "model-a": {"cases": 3, "agreement": 0.667}
     }
-    assert judge.calibrated_models("v1", path) == {"model-a"}
+    # recorded (it was measured) but NOT trusted: 67 % is below MIN_JUDGE_AGREEMENT
+    assert judge.calibrated_models("v1", path) == set()
     assert judge.calibrated_models("v2", path) == set()  # another prompt version: not trusted
+
+
+def test_only_a_judge_that_passed_calibration_is_trusted(tmp_path: Path) -> None:
+    """8.6b, seen live: allam-2-7b answered all 14 cases at 86 % (both symptom-vs-cause traps
+    wrong) and was listed as calibrated. Tested is not passed."""
+    path = tmp_path / "calibrated.json"
+    path.write_text(
+        json.dumps(
+            {
+                "v1": {
+                    "dots": {"cases": 14, "agreement": 1.0},
+                    "allam": {"cases": 14, "agreement": 0.857},  # 12/14
+                    "one-miss": {"cases": 14, "agreement": 0.929},  # 13/14: tolerated
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert judge.calibrated_models("v1", path) == {"dots", "one-miss"}
+    assert "allam" in judge.read_calibrated(path)["v1"]  # the measurement itself is kept
 
 
 def test_report_warns_about_an_uncalibrated_judge_model(

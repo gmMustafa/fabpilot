@@ -43,7 +43,7 @@ from app.agent.tools import McpTools
 from app.config import Settings, get_settings
 from app.db.session import create_engine
 from app.gateway.factory import build_gateway
-from app.gateway.gateway import DEFAULT_TEMPERATURE
+from app.gateway.structured import STRUCTURED_TEMPERATURE
 from app.plant import PlantConfig
 from app.rag.corpus import load_corpus
 from app.runtime import run
@@ -375,7 +375,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 2
-    run_manifest = manifest.build(settings.fallbacks, DEFAULT_TEMPERATURE)
+    run_manifest = manifest.build(settings.fallbacks, STRUCTURED_TEMPERATURE)
     dirty = " + uncommitted changes" if run_manifest.git_dirty else ""
     print(
         f"manifest: agent {run_manifest.agent_hash}, temperature {run_manifest.temperature}, "

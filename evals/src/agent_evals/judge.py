@@ -40,6 +40,7 @@ from agent_evals.scenario import SCENARIOS, Scenario, load_scenarios
 from app.config import Settings
 from app.db.models import FaultType
 from app.db.session import create_engine
+from app.gateway.cache import CachePolicy
 from app.gateway.factory import build_gateway
 from app.gateway.structured import ChatModel, Spend, chat_structured
 from app.gateway.types import ChatMessage
@@ -148,6 +149,7 @@ async def judge_text(
 ) -> tuple[JudgeVerdict, str]:
     """(the verdict, the model that gave it: after fallbacks, not necessarily the first)."""
     spend = Spend()
+    # PER_MODEL prevents cross-model reuse while preserving cache hits for the same judge.
     out = await chat_structured(
         gateway,
         messages(reference, root_cause),
@@ -155,6 +157,7 @@ async def judge_text(
         purpose="eval.judge",
         max_tokens=400,
         spend=spend,
+        cache=CachePolicy.PER_MODEL,
     )
     return out.value, spend.models[-1]
 
@@ -303,9 +306,18 @@ def read_calibrated(path: Path | None = None) -> dict[str, dict[str, dict[str, A
     return data
 
 
+# "Calibrated" = PASSED, not merely tested (8.6b). Seen live: allam-2-7b answered all 14 cases
+# but got 86 %, missing exactly the two symptom-vs-cause traps the judge exists for, and the file
+# listed it as calibrated all the same. 0.9 allows one miss in 14; the cases are deliberate
+# traps, so two misses are a rubric failure, not noise. The file keeps every measured result.
+MIN_JUDGE_AGREEMENT = 0.9
+
+
 def calibrated_models(version: str | None = None, path: Path | None = None) -> set[str]:
-    """Judge models calibrated under this prompt version (their verdicts may be trusted)."""
-    return set(read_calibrated(path).get(version or PROMPT_VERSION, {}))
+    """Judge models that PASSED calibration under this prompt version (agreement with the human
+    labels >= MIN_JUDGE_AGREEMENT): only their verdicts may be trusted."""
+    entries = read_calibrated(path).get(version or PROMPT_VERSION, {})
+    return {m for m, e in entries.items() if e.get("agreement", 0.0) >= MIN_JUDGE_AGREEMENT}
 
 
 def record_calibration(
