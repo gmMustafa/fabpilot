@@ -82,7 +82,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done (verified, quiz answered, 
 > 10.6 (Vercel + GHCR deploy) are replaced by:
 
 - [ ] 10.5′ Chart tested in CI: throwaway kind cluster per PR, build image, `helm install`, check /health (no LLM key, $0) + `docs/self-hosting.md` (compose for most, Helm for a cluster, own keys, "don't expose without auth")
-- [ ] 10.6′ One-command self-hosting: Next.js dashboard as a container in compose + prebuilt multi-arch images on GHCR, built by CI
+- [ ] 10.6′ One-command self-hosting: Next.js dashboard as a container in compose + prebuilt multi-arch images on GHCR, built by CI — 10.6′a done: web image (standalone, 267 MB, uid 1000), two API URLs (browser: build-time NEXT_PUBLIC_API_URL; server: runtime API_INTERNAL_URL); next 10.6′b GHCR workflow
 - [ ] (optional) Replay mode without a key: a seeded LLM cache for 2–3 demo questions
 
 ## Phase 11 — Portfolio polish

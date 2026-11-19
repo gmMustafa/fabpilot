@@ -15,6 +15,8 @@
 !mcp/
 # Plant layout (seed, simulator) and the knowledge base (ingest)
 !data/
+# The dashboard (web.Dockerfile, 10.6′a); its node_modules and build output are excluded below
+!web/
 
 # ...minus what is inside those folders but never belongs in an image
 **/tests/
@@ -23,6 +25,9 @@
 **/.mypy_cache/
 **/.ruff_cache/
 **/.venv/
+**/node_modules/
+**/.next/
+**/*.tsbuildinfo
 # Defense in depth: no env file, wherever it sits, ever reaches the build context.
 **/.env
 **/.env.*

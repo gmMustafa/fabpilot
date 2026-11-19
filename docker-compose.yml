@@ -76,6 +76,27 @@ services:
           condition: service_completed_successfully
     restart: unless-stopped
 
+  # The dashboard (10.6′a): http://localhost:3000 (localhost, not 127.0.0.1: that is the origin
+  # the API's CORS_ORIGINS allows). Two API URLs, because the API is called from two places:
+  # the browser uses the one baked in at build time (127.0.0.1:${API_PORT}, the published port),
+  # the Next.js server uses api:8000 on the compose network (read at runtime).
+  web:
+    image: fabpilot-web:${IMAGE_TAG:-dev}
+    build:
+      context: .
+      dockerfile: infra/docker/web.Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: http://127.0.0.1:${API_PORT:-8000}
+    pull_policy: build
+    environment:
+      API_INTERNAL_URL: http://api:8000
+    ports:
+      - "127.0.0.1:${WEB_PORT:-3000}:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
   # One-off setup: `docker compose --profile setup run --rm seed`. Both steps are idempotent.
   seed:
     <<: *python
