@@ -11,8 +11,10 @@ name: fabpilot
 # One image for every Python service, built once (infra/docker/python.Dockerfile); only the
 # command differs. `x-` keys are ignored by compose itself: they exist to be referenced (&/*).
 x-python: &python
-  image: fabpilot-python:${IMAGE_TAG:-dev}
-  # Built by `api` only (below); the others must never try to PULL a local-only tag.
+  # Local build by default (fabpilot-python:dev). Prebuilt from GHCR (10.6′b), in .env:
+  #   IMAGE_REGISTRY=ghcr.io/gmmustafa/  IMAGE_TAG=latest (or sha-<commit>)  PULL_POLICY=always
+  image: ${IMAGE_REGISTRY:-}fabpilot-python:${IMAGE_TAG:-dev}
+  # Built or pulled by `api` only (below); the others reuse that image, never pull on their own.
   pull_policy: never
   env_file: .env
   environment: &python-env
@@ -65,7 +67,7 @@ services:
     build:
       context: .
       dockerfile: infra/docker/python.Dockerfile
-    pull_policy: build
+    pull_policy: ${PULL_POLICY:-build} # build = from source; always = from IMAGE_REGISTRY
     ports:
       # API_PORT: the host side. Default 8000, the same as `uv run uvicorn`: run one or the other.
       - "127.0.0.1:${API_PORT:-8000}:8000"
@@ -81,13 +83,15 @@ services:
   # the browser uses the one baked in at build time (127.0.0.1:${API_PORT}, the published port),
   # the Next.js server uses api:8000 on the compose network (read at runtime).
   web:
-    image: fabpilot-web:${IMAGE_TAG:-dev}
+    image: ${IMAGE_REGISTRY:-}fabpilot-web:${IMAGE_TAG:-dev}
     build:
       context: .
       dockerfile: infra/docker/web.Dockerfile
       args:
         NEXT_PUBLIC_API_URL: http://127.0.0.1:${API_PORT:-8000}
-    pull_policy: build
+    # A PULLED web image has http://127.0.0.1:8000 baked in (the Dockerfile's default): with
+    # another API_PORT or host, build it yourself (PULL_POLICY=build), see 10.6′a.
+    pull_policy: ${PULL_POLICY:-build}
     environment:
       API_INTERNAL_URL: http://api:8000
     ports:
