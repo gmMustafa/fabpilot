@@ -49,8 +49,17 @@ def test_a_differing_setting_is_named_with_its_values() -> None:
 
 
 def test_every_checked_field_is_checked() -> None:
-    found = problems([m(), m(routes=(QWEN,), agent_hash="bbb", temperature=0.0)], [{GPT}, {GPT}])
-    assert len(found) == 3  # routes, temperature, agent_hash: each its own message
+    other = m(routes=(QWEN,), agent_hash="bbb", temperature=0.0, data_hash="ddd")
+    found = problems([m(data_hash="ccc"), other], [{GPT}, {GPT}])
+    assert len(found) == 4  # routes, temperature, agent_hash, data_hash: each its own message
+
+
+def test_a_data_hash_not_recorded_yet_is_unknown_not_different() -> None:
+    """8.6a: rows from before data_hash existed (None) stay comparable with new ones, so the
+    baseline needn't be re-run; two RECORDED values that differ are a problem."""
+    assert problems([m(), m(data_hash="ccc")], [{GPT}] * 2) == []
+    [p] = problems([m(), m(data_hash="ccc"), m(data_hash="ddd")], [{GPT}] * 3)
+    assert "data_hash" in p and "ccc" in p and "ddd" in p
 
 
 def test_the_commit_is_not_checked() -> None:
@@ -102,6 +111,40 @@ def test_agent_hash_changes_with_the_code(tmp_path: Path) -> None:
     assert manifest.agent_hash(tmp_path) == before  # deterministic
     f.write_text("PROMPT = 'b'\n")
     assert manifest.agent_hash(tmp_path) != before
+
+
+def _data_root(tmp_path: Path) -> Path:
+    (tmp_path / "data" / "docs" / "manuals").mkdir(parents=True)
+    (tmp_path / "data" / "docs" / "manuals" / "MAN-PMP-001.md").write_bytes(b"# Pump\nok\n")
+    (tmp_path / "data" / "plant.yaml").write_bytes(b"lines: 3\n")
+    return tmp_path
+
+
+def test_data_hash_changes_with_a_manual_or_the_plant(tmp_path: Path) -> None:
+    root = _data_root(tmp_path)
+    before = manifest.data_hash(root)
+    assert manifest.data_hash(root) == before  # deterministic
+    (root / "data" / "docs" / "manuals" / "MAN-PMP-001.md").write_bytes(b"# Pump\nchanged\n")
+    after_doc = manifest.data_hash(root)
+    assert after_doc != before
+    (root / "data" / "plant.yaml").write_bytes(b"lines: 4\n")
+    assert manifest.data_hash(root) != after_doc
+
+
+def test_data_hash_ignores_line_endings(tmp_path: Path) -> None:
+    """The same committed content must hash the same on Windows (CRLF checkout) and in CI."""
+    root = _data_root(tmp_path)
+    lf = manifest.data_hash(root)
+    (root / "data" / "docs" / "manuals" / "MAN-PMP-001.md").write_bytes(b"# Pump\r\nok\r\n")
+    (root / "data" / "plant.yaml").write_bytes(b"lines: 3\r\n")
+    assert manifest.data_hash(root) == lf
+
+
+def test_a_manifest_from_before_8_6a_still_loads() -> None:
+    """Old result rows have no data_hash key: they must still parse (extra="forbid" is about
+    UNKNOWN keys, a missing optional one is fine)."""
+    old = {k: v for k, v in m().model_dump().items() if k != "data_hash"}
+    assert Manifest.model_validate(old).data_hash is None
 
 
 def test_the_gate_calls_a_mixed_run_invalid() -> None:

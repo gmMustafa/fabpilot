@@ -78,6 +78,8 @@ def test_drift_reference_names_the_scenarios_sensor() -> None:
 
 # ---------------------------------------------------------------- judging a run, cached
 
+JUDGE = {"scripted"}  # the model ScriptedChat reports as having answered (app.testing)
+
 
 def test_judge_run_caches_by_scenario_run_and_prompt_version(
     tmp_path: Path, suite: dict[str, Scenario], monkeypatch: pytest.MonkeyPatch
@@ -85,26 +87,71 @@ def test_judge_run_caches_by_scenario_run_and_prompt_version(
     out = tmp_path / "run.judge.jsonl"
     rs = [result(), result("control-m10", category="no_fault")]  # only the first is judged
 
-    assert run(judge.judge_run(ScriptedChat(verdict("correct")), rs, suite, out)) == (1, 0)
+    assert run(judge.judge_run(ScriptedChat(verdict("correct")), rs, suite, out, JUDGE)) == (1, 0)
     assert judge.read_judged(out)[0].verdict == "correct"
 
     # same file again: nothing to ask (the empty chat would fail on any request)
-    assert run(judge.judge_run(ScriptedChat(), rs, suite, out)) == (0, 1)
+    assert run(judge.judge_run(ScriptedChat(), rs, suite, out, JUDGE)) == (0, 1)
 
     # a changed rubric (new prompt version) judges again
     monkeypatch.setattr(judge, "PROMPT_VERSION", "other-version")
-    assert run(judge.judge_run(ScriptedChat(verdict("symptom_only")), rs, suite, out)) == (1, 0)
+    assert run(judge.judge_run(ScriptedChat(verdict("symptom_only")), rs, suite, out, JUDGE)) == (
+        1,
+        0,
+    )
 
 
 def test_a_failed_judge_call_is_recorded_and_retried(
     tmp_path: Path, suite: dict[str, Scenario]
 ) -> None:
     out = tmp_path / "run.judge.jsonl"
-    run(judge.judge_run(ScriptedChat(RuntimeError("provider down")), [result()], suite, out))
+    run(judge.judge_run(ScriptedChat(RuntimeError("provider down")), [result()], suite, out, JUDGE))
     failed = judge.read_judged(out)[0]
     assert failed.verdict is None and failed.error and "provider down" in failed.error
     # not cached: the next run asks again
-    assert run(judge.judge_run(ScriptedChat(verdict("correct")), [result()], suite, out)) == (1, 0)
+    assert run(
+        judge.judge_run(ScriptedChat(verdict("correct")), [result()], suite, out, JUDGE)
+    ) == (1, 0)
+
+
+def test_a_verdict_from_another_judge_model_is_judged_again(
+    tmp_path: Path, suite: dict[str, Scenario]
+) -> None:
+    """8.6a: switching JUDGE_MODELS must re-judge, not silently reuse the old judge's verdicts
+    (before, the cache key had no model: the report credited the NEW judge with old verdicts)."""
+    out = tmp_path / "run.judge.jsonl"
+    old = ScriptedChat(ScriptedChat.Reply(verdict("correct"), model="old-judge"))
+    assert run(judge.judge_run(old, [result()], suite, out, {"old-judge"})) == (1, 0)
+
+    # the same judge configured: reused, no request
+    assert run(judge.judge_run(ScriptedChat(), [result()], suite, out, {"old-judge"})) == (0, 1)
+
+    # another judge configured: asked again, and the new verdict carries the new model
+    new = ScriptedChat(ScriptedChat.Reply(verdict("symptom_only"), model="new-judge"))
+    assert run(judge.judge_run(new, [result()], suite, out, {"new-judge"})) == (1, 0)
+    assert judge.read_judged(out)[-1].judge_model == "new-judge"
+
+    # a fallback model that is still configured may have answered: its verdict stays valid
+    both = {"new-judge", "old-judge"}
+    assert run(judge.judge_run(ScriptedChat(), [result()], suite, out, both)) == (0, 1)
+
+
+def test_a_verdict_without_a_recorded_model_is_judged_again(
+    tmp_path: Path, suite: dict[str, Scenario]
+) -> None:
+    """Before 8.4b no judge_model was recorded: who judged is unknown, so it can't count as
+    the configured judge's verdict."""
+    out = tmp_path / "run.judge.jsonl"
+    r = result()
+    legacy = judge.Judged(
+        scenario_id=r.scenario_id,
+        thread_id=r.thread_id,
+        prompt_version=judge.PROMPT_VERSION,
+        verdict="correct",
+        judge_model=None,
+    )
+    out.write_text(legacy.model_dump_json() + "\n", encoding="utf-8")
+    assert run(judge.judge_run(ScriptedChat(verdict("correct")), [r], suite, out, JUDGE)) == (1, 0)
 
 
 # ---------------------------------------------------------------- calibration
@@ -153,7 +200,7 @@ def test_each_verdict_records_the_model_that_gave_it(
     tmp_path: Path, suite: dict[str, Scenario]
 ) -> None:
     out = tmp_path / "run.judge.jsonl"
-    run(judge.judge_run(ScriptedChat(verdict("correct")), [result()], suite, out))
+    run(judge.judge_run(ScriptedChat(verdict("correct")), [result()], suite, out, JUDGE))
     assert judge.read_judged(out)[0].judge_model == "scripted"
 
 

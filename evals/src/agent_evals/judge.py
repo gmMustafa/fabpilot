@@ -26,7 +26,7 @@ import argparse
 import hashlib
 import json
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from contextlib import AsyncExitStack
 from pathlib import Path
 from typing import Any, Literal
@@ -174,21 +174,41 @@ def read_judged(path: Path) -> list[Judged]:
     ]
 
 
-def cached(judged: list[Judged]) -> dict[tuple[str, str | None], Judged]:
-    """(scenario_id, thread_id) -> its verdict under the CURRENT prompt version (failures are
-    not cached: they are judged again)."""
+def cached(judged: list[Judged], models: Collection[str]) -> dict[tuple[str, str | None], Judged]:
+    """(scenario_id, thread_id) -> a verdict that is still valid, so it isn't asked again.
+
+    Valid = the CURRENT prompt version, a verdict (failures are judged again), and (8.6a) given by
+    a model in `models`, the judge models configured NOW. Before 8.6a the model wasn't checked:
+    after switching JUDGE_MODELS, the old judge's verdicts were silently reused and reported as
+    if the new judge had given them.
+    """
+    # Any CONFIGURED model counts, not only the first: a fallback judge that answered on a
+    # rate-limited day gave a legitimate verdict, and discarding it would re-spend the quota on
+    # every run. Consistency across a mix of judges is the report's job: it flags verdicts from
+    # an uncalibrated model (8.4b), so every configured judge must be calibrated. A verdict
+    # whose model wasn't recorded (before 8.4b) is unknown, so it is judged again.
     return {
         (j.scenario_id, j.thread_id): j
         for j in judged
-        if j.prompt_version == PROMPT_VERSION and j.verdict is not None
+        if (
+            j.prompt_version == PROMPT_VERSION
+            and j.verdict is not None
+            and j.judge_model is not None
+            and j.judge_model in models
+        )
     }
 
 
 async def judge_run(
-    gateway: ChatModel, rs: list[results.Result], scenarios: dict[str, Scenario], out: Path
+    gateway: ChatModel,
+    rs: list[results.Result],
+    scenarios: dict[str, Scenario],
+    out: Path,
+    models: Collection[str],
 ) -> tuple[int, int]:
-    """Judge every result that needs it and isn't cached; append to `out`. (judged, cached)."""
-    have = cached(read_judged(out))
+    """Judge every result that needs it and isn't cached; append to `out`. (judged, cached).
+    `models`: the configured judge models, whose verdicts the cache may reuse (`cached`)."""
+    have = cached(read_judged(out), models)
     new = hits = 0
     for r in rs:
         s = scenarios.get(r.scenario_id)
@@ -342,7 +362,9 @@ async def _with_gateway(settings: Settings, job: str, args: argparse.Namespace) 
             doc_ids = [d.meta.doc_id for d in load_corpus(settings.docs_dir)]
             scenarios = {s.id: s for s in load_scenarios(SCENARIOS, plant, doc_ids)}
             rs = list(results.latest(results.read(args.results_file)).values())
-            new, hits = await judge_run(gateway, rs, scenarios, sidecar(args.results_file))
+            # The configured judge models, as bare ids like the recorded judge_model (8.6a).
+            models = {route.model for route in gateway.routes}
+            new, hits = await judge_run(gateway, rs, scenarios, sidecar(args.results_file), models)
             print(f"\n{new} judged, {hits} from cache -> {sidecar(args.results_file).name}")
 
 

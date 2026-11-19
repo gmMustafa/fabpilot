@@ -61,7 +61,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done (verified, quiz answered, 
 - [x] 8.3 Metrics — eval DB + dry run (8.3a), agent runs with resume (8.3b), grading + report (8.3c); smoke set 7/7 correct
 - [x] 8.4 LLM-as-judge — root cause only, calibrated on 14 human-labelled cases (100 % agreement, dots-3-note-preview)
 - [x] 8.5 Evals in GitHub Actions + README table — baseline 44/51 (86 %) on Groq gpt-oss-120b; summary.json → gate + generated README table; smoke set gated on PRs (PR #1: PASS, ~6 min)
-- [ ] 8.6 Compare 2–3 free models
+- [ ] 8.6 Compare 2–3 free models — 8.6a done: judge cache keyed by the configured judge model; data_hash (docs + plant, CRLF-normalized) in the manifest; next 8.6b judge on Groq
 
 ## Phase 9 — Observability
 - [ ] 9.1 Self-hosted Langfuse (as an optional compose profile: `--profile observability`)
