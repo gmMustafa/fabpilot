@@ -40,13 +40,13 @@ spec:
           {{- include "fabpilot.containerSecurity" . | nindent 10 }}
           resources:
             {{- toYaml .Values.api.resources | nindent 12 }}
-      startupProbe:
-          httpGet:
-            path: /livez
-            port: http
-          periodSeconds: 5
-          timeoutSeconds: 2
-          failureThreshold: 8
+          startupProbe:
+            httpGet:
+              path: /livez
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 8
 
           readinessProbe:
             httpGet:
