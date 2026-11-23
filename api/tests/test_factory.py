@@ -60,6 +60,18 @@ def test_a_route_to_a_provider_without_a_key_fails_at_startup() -> None:
         )
 
 
+def test_the_longest_retry_after_to_wait_is_configurable() -> None:
+    """8.6c: a strict eval run has no next route, so a Retry-After above max_delay failed the
+    call (Groq's 8K tokens/minute: qwen errored 38 of 51 scenarios). Evals raise it via env."""
+    route = ["groq:openai/gpt-oss-120b@low"]
+    default = build_gateway(settings(groq_api_key=SecretStr("gsk_x"), llm_fallbacks=route))
+    assert default.config.max_delay == 20.0  # the dashboard's behaviour is unchanged
+    patient = build_gateway(
+        settings(groq_api_key=SecretStr("gsk_x"), llm_fallbacks=route, llm_max_delay_seconds=65)
+    )
+    assert patient.config.max_delay == 65
+
+
 def test_no_routes_is_a_clear_startup_error() -> None:
     with pytest.raises(RuntimeError, match="LLM_FALLBACKS"):
         build_gateway(settings(groq_api_key=SecretStr("gsk_x")))

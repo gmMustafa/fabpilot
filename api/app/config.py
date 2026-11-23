@@ -63,6 +63,11 @@ class Settings(BaseSettings):
     # Empty = the model's default. (5.2b: free reasoning models over-thought long prompts.)
     llm_reasoning_effort: str | None = "none"
     llm_deadline_seconds: float = 120.0  # wall clock for one gateway call incl. backoff
+    # The longest Retry-After the gateway WAITS for; a longer one moves on to the next route
+    # (8.6c). 20 s suits the dashboard (a fallback answers sooner). A strict eval run has no
+    # next route, so a longer Retry-After failed the call: Groq's 8K tokens/minute gave qwen
+    # 38 of 51 errored scenarios. Evals raise it (with the deadline) to wait out the window.
+    llm_max_delay_seconds: float = 20.0
     # Prompt cache (2.3): answer repeated requests from Postgres, 0 tokens, ~ms. false = OFF
     # everywhere. TTL: free models change, a months-old answer no longer represents them.
     llm_cache_enabled: bool = True

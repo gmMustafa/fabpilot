@@ -50,6 +50,7 @@ def build_gateway(settings: Settings, *, engine: AsyncEngine | None = None) -> L
         models=settings.fallbacks,
         max_retries_per_model=settings.llm_max_retries,
         max_attempts=settings.llm_max_attempts,
+        max_delay=settings.llm_max_delay_seconds,
         deadline=settings.llm_deadline_seconds,
     )
     recorder = DbCallRecorder(engine) if engine is not None else None
