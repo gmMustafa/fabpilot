@@ -1,0 +1,137 @@
+{
+  "name": "run-groq-qwen3.8-27b",
+  "eval_now": "2026-11-10T12:00:00Z",
+  "suite_size": 51,
+  "totals": {
+    "n": 51,
+    "correct": 42,
+    "acceptable": 2,
+    "wrong": 7,
+    "errored": 0
+  },
+  "accuracy": 0.8235294117647058,
+  "completion": 1.0,
+  "controls": 9,
+  "invented": 0,
+  "drifts": 11,
+  "blamed": 5,
+  "citation_recall": 0.9285714285714286,
+  "citations_valid": 1.0,
+  "work_order_ok": 1.0,
+  "tools_ok": 1.0,
+  "by_fault": {
+    "bearing_wear": {
+      "n": 8,
+      "correct": 8,
+      "acceptable": 0,
+      "wrong": 0,
+      "errored": 0
+    },
+    "belt_slippage": {
+      "n": 4,
+      "correct": 3,
+      "acceptable": 1,
+      "wrong": 0,
+      "errored": 0
+    },
+    "clogged_filter": {
+      "n": 7,
+      "correct": 7,
+      "acceptable": 0,
+      "wrong": 0,
+      "errored": 0
+    },
+    "coolant_pump_failure": {
+      "n": 4,
+      "correct": 4,
+      "acceptable": 0,
+      "wrong": 0,
+      "errored": 0
+    },
+    "motor_overload": {
+      "n": 8,
+      "correct": 7,
+      "acceptable": 1,
+      "wrong": 0,
+      "errored": 0
+    },
+    "none": {
+      "n": 9,
+      "correct": 9,
+      "acceptable": 0,
+      "wrong": 0,
+      "errored": 0
+    },
+    "sensor_drift": {
+      "n": 11,
+      "correct": 4,
+      "acceptable": 0,
+      "wrong": 7,
+      "errored": 0
+    }
+  },
+  "by_tag": {
+    "typical": {
+      "n": 8,
+      "correct": 8,
+      "acceptable": 0,
+      "wrong": 0,
+      "errored": 0
+    },
+    "mild": {
+      "n": 8,
+      "correct": 6,
+      "acceptable": 2,
+      "wrong": 0,
+      "errored": 0
+    },
+    "advanced": {
+      "n": 8,
+      "correct": 8,
+      "acceptable": 0,
+      "wrong": 0,
+      "errored": 0
+    },
+    "drift": {
+      "n": 11,
+      "correct": 4,
+      "acceptable": 0,
+      "wrong": 7,
+      "errored": 0
+    },
+    "control": {
+      "n": 9,
+      "correct": 9,
+      "acceptable": 0,
+      "wrong": 0,
+      "errored": 0
+    },
+    "trap": {
+      "n": 10,
+      "correct": 10,
+      "acceptable": 0,
+      "wrong": 0,
+      "errored": 0
+    },
+    "smoke": {
+      "n": 7,
+      "correct": 6,
+      "acceptable": 0,
+      "wrong": 1,
+      "errored": 0
+    }
+  },
+  "diagnosed_by": {
+    "groq:qwen3.8-27b": 51
+  },
+  "requests": 191,
+  "tokens": 268945,
+  "median_seconds": 49.7,
+  "stale": 0,
+  "judge": null,
+  "answered_by": {
+    "groq:qwen/qwen3.8-27b": 51
+  },
+  "manifest_problems": [],
+  "manifests_missing": 0
+}

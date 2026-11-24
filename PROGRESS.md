@@ -61,7 +61,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done (verified, quiz answered, 
 - [x] 8.3 Metrics — eval DB + dry run (8.3a), agent runs with resume (8.3b), grading + report (8.3c); smoke set 7/7 correct
 - [x] 8.4 LLM-as-judge — root cause only, calibrated on 14 human-labelled cases (100 % agreement, dots-3-note-preview)
 - [x] 8.5 Evals in GitHub Actions + README table — baseline 44/51 (86 %) on Groq gpt-oss-120b; summary.json → gate + generated README table; smoke set gated on PRs (PR #1: PASS, ~6 min)
-- [ ] 8.6 Compare 2–3 free models — 8.6a done: judge cache keyed by the configured judge model; data_hash (docs + plant, CRLF-normalized) in the manifest; 8.6b done: judge on dots kept (Groq has no third model family: gpt-oss + qwen are the candidates); allam-2-7b calibrated as an experiment: 86 %, 0/2 on symptom_only → not trusted; judge cache PER_MODEL; manifest temperature = the real 0.0; next 8.6c candidate runs
+- [ ] 8.6 Compare 2–3 free models — DONE except the judge column: gpt-oss-120b 44/51, gpt-oss-20b 40/51 (p = 0.29), qwen3.8-27b 42/51 (p = 0.73): accuracy not separable on 51 scenarios, error profiles differ (20b fails traps 5/10, qwen blames drift 5/11) → 120b stays default (evals/results/compare-8.6.md, README). Sub-steps: 8.6a judge cache per judge model + data_hash; 8.6b judge stays off Groq (no third family), allam-2-7b 86 % / 0/2 symptom → calibrated means passed, PER_MODEL judge cache, true manifest temperature; 8.6c runs (LLM_MAX_DELAY_SECONDS for Groq TPM); 8.6d compare.py + McNemar. OPEN: dots withdrawn from OpenRouter → calibrate nemotron-3-ultra, re-judge all three runs, rerun compare
 
 ## Phase 9 — Observability
 - [ ] 9.1 Self-hosted Langfuse (as an optional compose profile: `--profile observability`)

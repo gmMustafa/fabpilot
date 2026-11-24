@@ -145,7 +145,7 @@ def _manifest_section(known: list[results.Result]) -> list[str]:
         commits = sorted({_commit(x) for x in found})
         out.append(
             f"- routes {', '.join(m.routes)}; temperature {m.temperature}; agent {m.agent_hash}; "
-            f"commits {', '.join(commits)}"
+            f"data {m.data_hash or 'not recorded'}; commits {', '.join(commits)}"
         )
     if missing := len(known) - len(found):
         out.append(f"- {missing} row(s) recorded before manifests (answering model only)")

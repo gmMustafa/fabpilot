@@ -124,3 +124,35 @@ Run `run-groq-full`: 51 of 51 scenarios, eval clock 2026-11-10 12:00 UTC; diagno
 - Known weakness: sensor drift was blamed on the machine in 2/11 (18 %) of the drift scenarios.
 - Root causes were double-checked by a calibrated LLM judge, which agreed with the keyword grade on 35 of 35 answers.
 <!-- evals:end -->
+
+### Model comparison: three free Groq models
+
+The same 51 scenarios, the same agent code, documents and temperature; only the model differs,
+pinned to one route per run (no silent fallback). Full table, per-fault results and the
+discordant scenarios by name: [evals/results/compare-8.6.md](evals/results/compare-8.6.md).
+
+| | gpt-oss-120b (low) | gpt-oss-20b (low) | qwen3.8-27b (no thinking) |
+|---|---|---|---|
+| root-cause accuracy | 44/51 (86 %) | 40/51 (78 %) | 42/51 (82 %) |
+| vs 120b, McNemar exact (discordant pairs) | - | p = 0.29 (6 : 2) | p = 0.73 (5 : 3) |
+| fault invented on a healthy machine | 0/9 | 0/9 | 0/9 |
+| sensor drift blamed on the machine | 2/11 | 2/11 | **5/11** |
+| misleading-question traps | 10/10 | **5/10** | 10/10 |
+| tokens per full run | 261K | 237K | 269K |
+
+- **Accuracy can't separate them.** Only 8 scenarios decide each pairing, and a 6 : 2 split
+  happens by chance 29 % of the time if two models are equally good. Confirming a difference of
+  this size would take roughly three times as many scenarios.
+- **Their errors differ, and that decides.** The smaller gpt-oss-20b follows a leading question
+  instead of the data: 5 of its 6 losses against 120b are trap scenarios. qwen3.8-27b blames the
+  machine for a drifting sensor in 5 of 11 cases, all 5 of its losses; the eval gate (drift
+  blamed at most 20 %) would reject it, although it is better on clogged filters and motor
+  overload. Both patterns come from small subgroups (10 and 11 scenarios): strong hints, not
+  proof.
+- **Choice: gpt-oss-120b stays the default**, as the only model without a weakness in the
+  safety-relevant classes (false alarms, drift, leading questions), not for a higher score.
+- Caveats: Groq accepts reasoning effort `low` for gpt-oss and only `none` for Qwen, so Qwen
+  answered without thinking. Qwen's longer time per scenario is mostly waiting out Groq's
+  tokens-per-minute limit, not model speed. The LLM-judge column is pending: the calibrated judge
+  model was withdrawn from OpenRouter mid-comparison, so all three runs are being re-judged by
+  one newly calibrated judge.

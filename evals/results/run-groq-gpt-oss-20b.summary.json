@@ -1,0 +1,142 @@
+{
+  "name": "run-groq-gpt-oss-20b",
+  "eval_now": "2026-11-10T12:00:00Z",
+  "suite_size": 51,
+  "totals": {
+    "n": 51,
+    "correct": 40,
+    "acceptable": 3,
+    "wrong": 8,
+    "errored": 0
+  },
+  "accuracy": 0.7843137254901961,
+  "completion": 1.0,
+  "controls": 9,
+  "invented": 0,
+  "drifts": 11,
+  "blamed": 2,
+  "citation_recall": 0.8452380952380952,
+  "citations_valid": 1.0,
+  "work_order_ok": 0.9411764705882353,
+  "tools_ok": 1.0,
+  "by_fault": {
+    "bearing_wear": {
+      "n": 8,
+      "correct": 7,
+      "acceptable": 0,
+      "wrong": 1,
+      "errored": 0
+    },
+    "belt_slippage": {
+      "n": 4,
+      "correct": 2,
+      "acceptable": 0,
+      "wrong": 2,
+      "errored": 0
+    },
+    "clogged_filter": {
+      "n": 7,
+      "correct": 6,
+      "acceptable": 0,
+      "wrong": 1,
+      "errored": 0
+    },
+    "coolant_pump_failure": {
+      "n": 4,
+      "correct": 4,
+      "acceptable": 0,
+      "wrong": 0,
+      "errored": 0
+    },
+    "motor_overload": {
+      "n": 8,
+      "correct": 5,
+      "acceptable": 1,
+      "wrong": 2,
+      "errored": 0
+    },
+    "none": {
+      "n": 9,
+      "correct": 7,
+      "acceptable": 2,
+      "wrong": 0,
+      "errored": 0
+    },
+    "sensor_drift": {
+      "n": 11,
+      "correct": 9,
+      "acceptable": 0,
+      "wrong": 2,
+      "errored": 0
+    }
+  },
+  "by_tag": {
+    "typical": {
+      "n": 8,
+      "correct": 8,
+      "acceptable": 0,
+      "wrong": 0,
+      "errored": 0
+    },
+    "mild": {
+      "n": 8,
+      "correct": 6,
+      "acceptable": 1,
+      "wrong": 1,
+      "errored": 0
+    },
+    "advanced": {
+      "n": 8,
+      "correct": 6,
+      "acceptable": 0,
+      "wrong": 2,
+      "errored": 0
+    },
+    "drift": {
+      "n": 11,
+      "correct": 9,
+      "acceptable": 0,
+      "wrong": 2,
+      "errored": 0
+    },
+    "control": {
+      "n": 9,
+      "correct": 7,
+      "acceptable": 2,
+      "wrong": 0,
+      "errored": 0
+    },
+    "trap": {
+      "n": 10,
+      "correct": 5,
+      "acceptable": 2,
+      "wrong": 3,
+      "errored": 0
+    },
+    "smoke": {
+      "n": 7,
+      "correct": 7,
+      "acceptable": 0,
+      "wrong": 0,
+      "errored": 0
+    }
+  },
+  "diagnosed_by": {
+    "groq:gpt-oss-20b": 51
+  },
+  "requests": 125,
+  "tokens": 236979,
+  "median_seconds": 26.7,
+  "stale": 0,
+  "judge": {
+    "judged": 33,
+    "correct": 33,
+    "agree": 33,
+    "calibrated": true
+  },
+  "answered_by": {
+    "groq:openai/gpt-oss-20b": 51
+  },
+  "manifest_problems": [],
+  "manifests_missing": 0
+}

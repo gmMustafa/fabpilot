@@ -31,7 +31,7 @@ Accuracy = correct / completed. An allowed 'unknown' is acceptable, never correc
 ## Manifest
 
 - answered by: groq:openai/gpt-oss-120b (51 rows)
-- routes groq:openai/gpt-oss-120b@low; temperature 0.2; agent 0650892b5f9a; commits 6ffea189, 708e4cd9
+- routes groq:openai/gpt-oss-120b@low; temperature 0.2; agent 0650892b5f9a; data not recorded; commits 6ffea189, 708e4cd9
 - 48 row(s) recorded before manifests (answering model only)
 - one model, one configuration: comparable
 
