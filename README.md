@@ -6,8 +6,9 @@
 AI maintenance copilot for factories: sensor data + anomaly detection + RAG over manuals and past
 incidents → root cause with citations → draft work order → human approval.
 
-> 🚧 Work in progress. Full README (architecture, eval results, design decisions) comes in Phase 11.
-> All plant data and documents are synthetic.
+**Results on 51 fault scenarios (CI eval suite):** 86% root-cause accuracy · 0 false alarms on healthy machines · 10/10 misleading-question traps · 100% valid citations. [Full report](evals/results/run-groq-full.md)
+
+*Actively developed; architecture write-up coming soon. All plant data and documents are synthetic.*
 
 **Just want to run it?** Prebuilt images, your own free key, Docker or Kubernetes:
 [docs/self-hosting.md](docs/self-hosting.md). There is no public instance on purpose.
