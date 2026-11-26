@@ -86,8 +86,10 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done (verified, quiz answered, 
 - [ ] (optional) Replay mode without a key: a seeded LLM cache for 2–3 demo questions
 
 ## Phase 11 — Portfolio polish
-- [ ] 11.1 README
-- [ ] 11.2 Publish MCP servers
-- [ ] 11.3 Demo video script
-- [ ] 11.4 Blog/LinkedIn post
-- [ ] 11.5 Interview prep
+- [x] 11.1 README — portfolio README: problem, Mermaid architecture, the agent's six steps, eval table + model comparison, six design decisions with trade-offs; dev setup moved to docs/development.md
+- [-] 11.2 Publish MCP servers (dropped 2026-11-27: not required)
+- [-] 11.3 Demo video script (dropped 2026-11-27: not required)
+- [-] 11.4 Blog/LinkedIn post (dropped 2026-11-27: not required)
+- [-] 11.5 Interview prep (dropped 2026-11-27: not required)
+
+Backlog after 8.6 (done): B1 alarm timeline = active during the window (dashboard only), B2 a rewrite closes alarms left open before its window, B3 M-01 "calibration quirk" measured and refuted, B4 quota per provider + Groq on About.
