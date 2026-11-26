@@ -70,11 +70,11 @@ Accuracy = correct / completed. An allowed 'unknown' is acceptable, never correc
 
 ## Judge (LLM, root cause only)
 
-Prompt version bfd383e0146c; judged only answers with the right fault category. .
+Prompt version bfd383e0146c; judged only answers with the right fault category. correct 33.
 
-- judge says correct: -
-- agrees with the keyword grade: -
-- judge calls failed: 33 (judged again next time)
+- judge says correct: 33/33 (100 %)
+- agrees with the keyword grade: 33/33 (100 %)
+- 33 verdict(s) from nvidia/nemotron-3-ultra-550b-a55b:free (calibrated)
 
 ## Wrong answers
 

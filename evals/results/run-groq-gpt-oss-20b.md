@@ -80,7 +80,7 @@ Prompt version bfd383e0146c; judged only answers with the right fault category. 
 
 - judge says correct: 33/33 (100 %)
 - agrees with the keyword grade: 33/33 (100 %)
-- 33 verdict(s) from dots-studio/dots-3-note-preview:free (calibrated)
+- 33 verdict(s) from nvidia/nemotron-3-ultra-550b-a55b:free (calibrated)
 
 ## Wrong answers
 

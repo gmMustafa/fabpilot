@@ -10,6 +10,12 @@ incidents → root cause with citations → draft work order → human approval.
 
 *Actively developed; architecture write-up coming soon. All plant data and documents are synthetic.*
 
+![An investigation: root cause with evidence and citations, and the draft work order waiting for approval](docs/ui/screenshots/05-run-diagnosis.png)
+
+*A real agent run on a free model: the diagnosis rests on numbered evidence from the machine data,
+cites the manuals, rules out the alternatives, and drafts a work order that a person must approve.
+Every screen and the false-alarm case: [docs/ui/flow.md](docs/ui/flow.md).*
+
 **Just want to run it?** Prebuilt images, your own free key, Docker or Kubernetes:
 [docs/self-hosting.md](docs/self-hosting.md). There is no public instance on purpose.
 
@@ -139,6 +145,7 @@ discordant scenarios by name: [evals/results/compare-8.6.md](evals/results/compa
 | fault invented on a healthy machine | 0/9 | 0/9 | 0/9 |
 | sensor drift blamed on the machine | 2/11 | 2/11 | **5/11** |
 | misleading-question traps | 10/10 | **5/10** | 10/10 |
+| LLM judge agrees with the keyword grade | 35/35 | 33/33 | 33/33 |
 | tokens per full run | 261K | 237K | 269K |
 
 - **Accuracy can't separate them.** Only 8 scenarios decide each pairing, and a 6 : 2 split
@@ -154,6 +161,11 @@ discordant scenarios by name: [evals/results/compare-8.6.md](evals/results/compa
   safety-relevant classes (false alarms, drift, leading questions), not for a higher score.
 - Caveats: Groq accepts reasoning effort `low` for gpt-oss and only `none` for Qwen, so Qwen
   answered without thinking. Qwen's longer time per scenario is mostly waiting out Groq's
-  tokens-per-minute limit, not model speed. The LLM-judge column is pending: the calibrated judge
-  model was withdrawn from OpenRouter mid-comparison, so all three runs are being re-judged by
-  one newly calibrated judge.
+  tokens-per-minute limit, not model speed. The LLM judge (root cause named, not just its
+  symptoms) is one model for all three runs: the first judge was withdrawn from OpenRouter
+  mid-comparison, so all runs were re-judged by `nemotron-3-ultra`, calibrated at 14/14 against
+  hand labels (a 7B candidate, 12/14, failed both symptom-vs-cause traps and was not used).
+
+## License
+
+[MIT](LICENSE). The plant, its sensor data and all documents in `data/docs/` are synthetic.

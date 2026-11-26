@@ -16,7 +16,7 @@
 | citations valid | 100% | 100% | 100% |
 | citation recall | 87% | 85% | 93% |
 | work-order rule | 96% | 94% | 100% |
-| judge (root cause) | 35/35 agree | 33/33 agree | pending |
+| judge (root cause) | 35/35 agree | 33/33 agree | 33/33 agree |
 | tokens / requests | 261,221 / 164 | 236,979 / 125 | 268,945 / 191 |
 | median seconds per scenario | 28 | 27 | 50 |
 

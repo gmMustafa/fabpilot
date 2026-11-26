@@ -128,7 +128,12 @@
   "tokens": 268945,
   "median_seconds": 49.7,
   "stale": 0,
-  "judge": null,
+  "judge": {
+    "judged": 33,
+    "correct": 33,
+    "agree": 33,
+    "calibrated": true
+  },
   "answered_by": {
     "groq:qwen/qwen3.8-27b": 51
   },

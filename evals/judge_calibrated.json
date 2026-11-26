@@ -7,6 +7,10 @@
     "dots-studio/dots-3-note-preview:free": {
       "agreement": 1.0,
       "cases": 14
+    },
+    "nvidia/nemotron-3-ultra-550b-a55b:free": {
+      "agreement": 1.0,
+      "cases": 14
     }
   }
 }
