@@ -2,107 +2,76 @@
 
 [![python-ci](https://github.com/gmMustafa/fabpilot/actions/workflows/python-ci.yml/badge.svg)](https://github.com/gmMustafa/fabpilot/actions/workflows/python-ci.yml)
 [![web-ci](https://github.com/gmMustafa/fabpilot/actions/workflows/web-ci.yml/badge.svg)](https://github.com/gmMustafa/fabpilot/actions/workflows/web-ci.yml)
+[![chart](https://github.com/gmMustafa/fabpilot/actions/workflows/chart.yml/badge.svg)](https://github.com/gmMustafa/fabpilot/actions/workflows/chart.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-AI maintenance copilot for factories: sensor data + anomaly detection + RAG over manuals and past
-incidents → root cause with citations → draft work order → human approval.
+**An AI maintenance copilot for factories.** A maintenance engineer asks *"why did this machine
+alarm, and what should I check?"*; an agent reads the sensor data and the alarm log, searches the
+manuals and past incidents, names the root cause with evidence and citations, and drafts a work
+order that a person must approve.
 
-**Results on 51 fault scenarios (CI eval suite):** 86% root-cause accuracy · 0 false alarms on healthy machines · 10/10 misleading-question traps · 100% valid citations. [Full report](evals/results/run-groq-full.md)
-
-*Actively developed; architecture write-up coming soon. All plant data and documents are synthetic.*
+**Results on a 51-scenario eval suite:** 86 % root-cause accuracy · 0 faults invented on healthy
+machines · 10/10 misleading-question traps · 100 % valid citations · on free LLMs.
+[Full report](evals/results/run-groq-full.md)
 
 ![An investigation: root cause with evidence and citations, and the draft work order waiting for approval](docs/ui/screenshots/05-run-diagnosis.png)
 
-*A real agent run on a free model: the diagnosis rests on numbered evidence from the machine data,
-cites the manuals, rules out the alternatives, and drafts a work order that a person must approve.
-Every screen and the false-alarm case: [docs/ui/flow.md](docs/ui/flow.md).*
+*A real agent run on a free model: every claim points to numbered evidence from the machine data,
+the manuals are cited, the alternatives are ruled out, and the work order waits for approval.
+Every screen, and the false-alarm case: [docs/ui/flow.md](docs/ui/flow.md).*
 
-**Just want to run it?** Prebuilt images, your own free key, Docker or Kubernetes:
-[docs/self-hosting.md](docs/self-hosting.md). There is no public instance on purpose.
+> All plant data and documents are synthetic. There is no public instance on purpose: run your
+> own with your own free key ([self-hosting](docs/self-hosting.md)).
 
-## Quickstart (dev)
+## The problem
 
-Needs Docker, [uv](https://docs.astral.sh/uv/), Node 22 + pnpm, and a free
-[Groq](https://console.groq.com) and/or [OpenRouter](https://openrouter.ai) key for the agent
-(everything else runs without one).
+When a machine stops at night, the engineer on call has to piece together sensor charts, an alarm
+log, manuals and old incident reports before the actual repair can start. And not every alarm is
+a fault: a drifting sensor can look exactly like an overheating machine. A copilot that confidently
+blames the machine for a lying sensor stops a line for nothing, so FabPilot is built to show its
+evidence, to say "insufficient data" instead of guessing, and to change nothing without a person.
 
-```bash
-# 1. Configuration and the database
-cp .env.example .env            # set POSTGRES_PASSWORD (and the same in DATABASE_URL),
-                                # GROQ_API_KEY and/or OPENROUTER_API_KEY, LLM_FALLBACKS
-                                # (provider:model routes, tried in order; see the file)
-docker compose up -d            # Postgres 16 + TimescaleDB + pgvector on 127.0.0.1:5433
-uv sync --all-packages          # from the repo root: one .venv for the whole uv workspace
-uv run pre-commit install       # once per clone: ruff + secret checks before every commit
+## How it works
 
-# 2. Schema, plant, sensor history, knowledge base
-cd api
-uv run alembic upgrade head     # extensions, tables, the sensor_readings hypertable
-uv run python -m app.seed       # 10 machines / 47 sensors from data/plant.yaml (idempotent)
-uv run simulator backfill --days 7   # ~3M readings; the demo plant runs 24/7 (plant.yaml: shifts)
-uv run python -m app.rag.ingest # manuals, SOPs, incidents -> pgvector (local embedding model,
-                                # ~130 MB download on first run; unchanged docs are skipped)
-
-# 3. The API (http://127.0.0.1:8000/docs)
-uv run uvicorn app.main:app --reload --loop asyncio:SelectorEventLoop
+```mermaid
+flowchart LR
+    user([maintenance engineer]) --> web
+    web["<b>Dashboard</b> · Next.js<br/>plant overview, sensor charts,<br/>live agent steps, approvals"]
+    web -- "REST + SSE" --> api
+    subgraph api ["<b>API</b> · FastAPI"]
+        agent["LangGraph agent<br/>+ human-in-the-loop"]
+        gw["LLM gateway<br/>routes, retries, cache, cost log"]
+        agent --> gw
+    end
+    gw --> llm[("free LLMs<br/>Groq · OpenRouter")]
+    agent -- "MCP (stdio)" --> sensors["<b>sensor-mcp</b><br/>readings, alarms,<br/>anomaly detection"]
+    agent -- "MCP (stdio)" --> docs["<b>docs-mcp</b><br/>hybrid search over manuals,<br/>SOPs, past incidents"]
+    sensors --> db[("PostgreSQL 16<br/>TimescaleDB · pgvector")]
+    docs --> db
+    sim["<b>simulator</b><br/>signals + 6 known faults"] --> db
+    evals["<b>evals</b><br/>51 scenarios, LLM judge,<br/>model comparison"] -.-> api
 ```
 
-```bash
-# 4. The dashboard (second terminal; open http://localhost:3000)
-cd web
-cp .env.example .env.local
-pnpm install
-pnpm dev
-```
+**The agent** is a workflow with one bounded loop, not a free agent: code runs the fixed
+investigation, the model judges ([design](docs/agent-design.md)).
 
-Or everything in Docker, dashboard included (no uv, Node or pnpm needed; step 1's `.env`):
+1. **Triage**: which machine, which time window, what is asked.
+2. **Investigate**: fixed MCP calls (machine, alarm log, anomaly detection, document search,
+   past incidents); the model may ask for at most two more tool calls when it sees a gap.
+3. **Hypothesize**: a root cause, a confidence, the alternatives ruled out; every claim points to
+   an evidence ID from the data (F = finding, A = alarm) and cites the documents.
+4. **Check**: guardrails in code reject a diagnosis without current machine data or with an
+   invented citation; one retry, then "insufficient data".
+5. **Draft**: a work order built from the cited procedure, safety steps flagged.
+6. **Approve**: the run pauses (a LangGraph `interrupt`, state in a Postgres checkpointer, so a
+   restart loses nothing); a person approves, edits or rejects. Nothing is saved before.
 
-```bash
-docker compose up -d --build                    # db -> migrate (runs once) -> api -> web
-                                                # dashboard: http://localhost:3000
-docker compose --profile setup run --rm seed    # plant, sensors, knowledge base (idempotent)
-docker compose --profile sim up -d simulator    # optional: live readings
-# history and faults: `docker compose exec api simulator backfill --days 7`, `... inject ...`
-```
+## Evaluation
 
-```bash
-# Show a fault (seconds: the history is written at once, no waiting)
-cd api
-uv run simulator inject --fault bearing_wear --machine M-01   # a known root cause + alarms
-uv run simulator clear --machine M-01                         # "repaired"
-uv run simulator run            # optional: live readings every 10 s, Ctrl+C to stop
-```
-
-## Tests
-
-```bash
-cd api && uv run pytest         # likewise in simulator/, mcp/sensor_mcp/, mcp/docs_mcp/, evals/
-cd web && pnpm test             # plus: pnpm lint, pnpm typecheck
-```
-
-No test calls a real LLM: the agent is tested against scripted model answers.
-
-## Evals
-
-51 fault scenarios with a known root cause (`evals/scenarios/`), run against a separate
-database (`fabpilot_eval`) on a fixed eval clock, so the data is identical on every run.
-
-```bash
-cd evals
-uv run python -m agent_evals.evaldb              # once: create + fill the eval database
-uv run python -m agent_evals.run --dry-run       # set up every scenario, 0 LLM requests
-uv run python -m agent_evals.run --tags smoke    # the agent on 7 scenarios (~15 requests)
-uv run python -m agent_evals.report results/<run>.jsonl    # grade: 0 requests
-uv run python -m agent_evals.judge --calibrate             # LLM judge vs human labels
-uv run python -m agent_evals.judge results/<run>.jsonl     # judge the root causes
-```
-
-Set `JUDGE_MODELS` in `.env` to routes of another model family than the agent's
-(self-preference). Budget: OpenRouter's free tier is ~50 requests/day (account-wide); on Groq
-the binding limit is tokens, ~200K/day per model. A full run measured ~170 requests and ~260K
-tokens (so ~1.5 days on one free Groq model) and resumes where it stopped
-(`--out results/<run>.jsonl`).
-
-### Results
+51 fault scenarios with a known root cause, generated with the simulator: six fault types at three
+severities, sensor drift that must *not* be blamed on the machine, healthy controls, and traps
+whose question points the wrong way. Graded by code; a calibrated LLM judge double-checks that a
+correct answer names the cause, not only its symptoms.
 
 <!-- evals:start (generated by agent_evals.readme: don't edit by hand) -->
 Run `run-groq-full`: 51 of 51 scenarios, eval clock 2026-11-10 12:00 UTC; diagnosed by groq:gpt-oss-120b (51). Full report: [evals/results/run-groq-full.md](evals/results/run-groq-full.md).
@@ -134,9 +103,9 @@ Run `run-groq-full`: 51 of 51 scenarios, eval clock 2026-11-10 12:00 UTC; diagno
 
 ### Model comparison: three free Groq models
 
-The same 51 scenarios, the same agent code, documents and temperature; only the model differs,
-pinned to one route per run (no silent fallback). Full table, per-fault results and the
-discordant scenarios by name: [evals/results/compare-8.6.md](evals/results/compare-8.6.md).
+The same 51 scenarios, agent code, documents and temperature; only the model differs, pinned to
+one route per run. Details and the discordant scenarios by name:
+[evals/results/compare-8.6.md](evals/results/compare-8.6.md).
 
 | | gpt-oss-120b (low) | gpt-oss-20b (low) | qwen3.8-27b (no thinking) |
 |---|---|---|---|
@@ -148,23 +117,81 @@ discordant scenarios by name: [evals/results/compare-8.6.md](evals/results/compa
 | LLM judge agrees with the keyword grade | 35/35 | 33/33 | 33/33 |
 | tokens per full run | 261K | 237K | 269K |
 
-- **Accuracy can't separate them.** Only 8 scenarios decide each pairing, and a 6 : 2 split
-  happens by chance 29 % of the time if two models are equally good. Confirming a difference of
-  this size would take roughly three times as many scenarios.
-- **Their errors differ, and that decides.** The smaller gpt-oss-20b follows a leading question
-  instead of the data: 5 of its 6 losses against 120b are trap scenarios. qwen3.8-27b blames the
-  machine for a drifting sensor in 5 of 11 cases, all 5 of its losses; the eval gate (drift
-  blamed at most 20 %) would reject it, although it is better on clogged filters and motor
-  overload. Both patterns come from small subgroups (10 and 11 scenarios): strong hints, not
-  proof.
-- **Choice: gpt-oss-120b stays the default**, as the only model without a weakness in the
-  safety-relevant classes (false alarms, drift, leading questions), not for a higher score.
-- Caveats: Groq accepts reasoning effort `low` for gpt-oss and only `none` for Qwen, so Qwen
-  answered without thinking. Qwen's longer time per scenario is mostly waiting out Groq's
-  tokens-per-minute limit, not model speed. The LLM judge (root cause named, not just its
-  symptoms) is one model for all three runs: the first judge was withdrawn from OpenRouter
-  mid-comparison, so all runs were re-judged by `nemotron-3-ultra`, calibrated at 14/14 against
-  hand labels (a 7B candidate, 12/14, failed both symptom-vs-cause traps and was not used).
+- **Accuracy can't separate them**: each pairing is decided by 8 scenarios, and a 6 : 2 split
+  happens by chance 29 % of the time if two models are equally good.
+- **Their errors differ, and that decides**: gpt-oss-20b follows a leading question instead of the
+  data (5 of its 6 losses are traps); qwen3.8-27b blames the machine for a drifting sensor (5 of
+  11). Small subgroups: strong hints, not proof.
+- **gpt-oss-120b stays the default**, as the only model without a weakness in the
+  safety-relevant classes, not for a higher score. Caveats (reasoning effort, rate-limit waits,
+  the judge change mid-comparison) are in the [full comparison](evals/results/compare-8.6.md).
+
+## Design decisions and trade-offs
+
+- **Free models behind a gateway; one pinned model per eval run.** Routes across Groq and
+  OpenRouter with retries, a prompt cache and a cost log keep the product answering when a free
+  model is rate-limited or withdrawn. In an evaluation the same fallback would silently measure two
+  models at once, so eval runs pin one route, record a manifest (code and data hashes, answering
+  model) and refuse to mix. *Cost: runs spread over days of free quota.*
+- **Evidence IDs and guardrails instead of trusting the model.** Every claim must point to a
+  finding or alarm the tools returned and every citation to a retrieved document; code rejects the
+  rest and asks once more, then answers "insufficient data". *Cost: a stricter agent sometimes
+  says less than it could.*
+- **Human-in-the-loop as part of the graph.** Approval is a LangGraph `interrupt` with a Postgres
+  checkpointer: the run survives restarts, and no work order exists until a person decides, with
+  who, when and why recorded.
+- **Evals graded by code; the LLM judge is a calibrated second opinion.** Categories, false alarms,
+  citations and tools are graded deterministically. The judge only checks "cause or symptom", must
+  pass hand-labelled cases (a 7B candidate failed both symptom traps and was rejected), and models
+  are compared paired, with McNemar's exact test instead of raw percentages.
+- **No public instance; deployment proven in CI.** A public demo would spend one person's free
+  quota for anyone. Instead the repo is self-hostable with your own key (prebuilt multi-arch
+  images, Docker Compose, a Helm chart), and every PR installs the chart on a throwaway Kubernetes
+  cluster and runs its smoke test.
+- **Measure, don't assume.** A check that has never been seen red proves nothing: the chart test
+  was broken on purpose and went red, eval bugs were found by measuring (a judge cache that would
+  have reused the old judge's verdicts after a switch, a manifest that recorded the wrong
+  temperature), and a
+  suspected simulator bug was refuted by simulating 20 healthy weeks before anything was changed.
+
+## Run it
+
+```bash
+cp .env.example .env            # POSTGRES_PASSWORD + your free GROQ_API_KEY
+docker compose up -d --build    # database, migrations, API, dashboard
+docker compose --profile setup run --rm seed    # plant + knowledge base
+# open http://localhost:3000
+```
+
+- **Prebuilt images, Kubernetes with Helm, another host:** [docs/self-hosting.md](docs/self-hosting.md)
+- **Local development, tests, eval commands:** [docs/development.md](docs/development.md)
+- **Every screen and flow:** [docs/ui/flow.md](docs/ui/flow.md) · **the agent's design:**
+  [docs/agent-design.md](docs/agent-design.md)
+
+## Tech stack
+
+| Area | |
+|---|---|
+| Agent and AI | LangGraph, MCP (FastMCP, two servers), hybrid RAG (pgvector + Postgres full-text, local fastembed model), Groq and OpenRouter free models |
+| Backend | Python 3.12, FastAPI, Pydantic v2, SQLAlchemy 2 (async), Alembic, uv workspace |
+| Data | PostgreSQL 16, TimescaleDB (sensor time series), pgvector |
+| Frontend | Next.js (App Router), TypeScript, Tailwind, shadcn/ui, TanStack Query, Recharts, SSE |
+| Quality | pytest (no real LLM calls), ruff, mypy, an eval harness with an LLM judge, GitHub Actions |
+| Deployment | Docker (multi-stage, non-root, amd64 + arm64), Docker Compose, Helm, kind in CI, GHCR |
+
+## What I learned
+
+<!-- TODO(Mustafa): replace these drafts with your own words; they come from LEARNING_LOG.md. -->
+
+- An agent that *sounds* right isn't one that *is* right: only a measured eval suite, with traps
+  and healthy controls, showed where it fails.
+- Accuracy alone ranks models misleadingly; paired statistics and error classes tell you which
+  one to trust.
+- Free models rotate and rate-limit: the gateway, the run manifest and resumable runs exist
+  because of that, not in spite of it.
+- The most dangerous bugs look like success: a prompt cache that quietly returned another
+  model's answers, an alarm timeline that hid an alarm its own banner counted as active.
+- Workflow over autonomy: let code do what is always the same, and give the model the judgement.
 
 ## License
 
