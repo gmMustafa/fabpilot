@@ -76,6 +76,9 @@ class Settings(BaseSettings):
     # after a one-time credit purchase. Shown as a guide: FabPilot can't see requests made
     # outside FabPilot, and the reset time is not verified (see StatsTotals).
     llm_daily_request_limit: int = 50
+    # Groq's free tier counts TOKENS per day, PER MODEL (B4). 200K measured for gpt-oss and qwen
+    # on the free plan (8.5/8.6); your console's limits page is the source of truth.
+    groq_daily_token_limit: int = 200_000
     # Run budget of the incident agent (5.4b): provider requests and tokens per question. A
     # normal run measured 2 requests / ~5,700 tokens; these stop a runaway, not a normal run.
     agent_max_llm_attempts: int = 12

@@ -543,6 +543,8 @@ export interface components {
         GatewayStats: {
             /** Daily Request Limit */
             daily_request_limit: number;
+            /** Groq Daily Token Limit */
+            groq_daily_token_limit: number;
             /** Models */
             models: components["schemas"]["ModelStats"][];
             /**
@@ -550,6 +552,8 @@ export interface components {
              * Format: date-time
              */
             since: string;
+            /** Today */
+            today: components["schemas"]["QuotaUse"][];
             totals: components["schemas"]["StatsTotals"];
             /** Window Hours */
             window_hours: number;
@@ -836,6 +840,21 @@ export interface components {
             generated_at: string;
             /** Machines */
             machines: components["schemas"]["MachineTile"][];
+        };
+        /**
+         * QuotaUse
+         * @description One provider + model's use since 00:00 UTC (B4). The providers limit DIFFERENT things:
+         *     OpenRouter's free tier counts requests per account, Groq's counts tokens per model.
+         */
+        QuotaUse: {
+            /** Model */
+            model: string;
+            /** Provider */
+            provider: string;
+            /** Requests */
+            requests: number;
+            /** Tokens */
+            tokens: number;
         };
         /**
          * ReadingBucket

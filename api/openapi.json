@@ -438,6 +438,10 @@
             "title": "Daily Request Limit",
             "type": "integer"
           },
+          "groq_daily_token_limit": {
+            "title": "Groq Daily Token Limit",
+            "type": "integer"
+          },
           "models": {
             "items": {
               "$ref": "#/components/schemas/ModelStats"
@@ -450,6 +454,13 @@
             "title": "Since",
             "type": "string"
           },
+          "today": {
+            "items": {
+              "$ref": "#/components/schemas/QuotaUse"
+            },
+            "title": "Today",
+            "type": "array"
+          },
           "totals": {
             "$ref": "#/components/schemas/StatsTotals"
           },
@@ -461,9 +472,11 @@
         "required": [
           "window_hours",
           "daily_request_limit",
+          "groq_daily_token_limit",
           "since",
           "totals",
-          "models"
+          "models",
+          "today"
         ],
         "title": "GatewayStats",
         "type": "object"
@@ -1118,6 +1131,35 @@
           "generated_at"
         ],
         "title": "PlantOverview",
+        "type": "object"
+      },
+      "QuotaUse": {
+        "description": "One provider + model's use since 00:00 UTC (B4). The providers limit DIFFERENT things:\nOpenRouter's free tier counts requests per account, Groq's counts tokens per model.",
+        "properties": {
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "requests": {
+            "title": "Requests",
+            "type": "integer"
+          },
+          "tokens": {
+            "title": "Tokens",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "provider",
+          "model",
+          "requests",
+          "tokens"
+        ],
+        "title": "QuotaUse",
         "type": "object"
       },
       "ReadingBucket": {

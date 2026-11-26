@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app.config import get_settings
 from app.db.deps import get_engine
-from app.gateway.stats import fetch_stats
+from app.gateway.stats import fetch_quota_today, fetch_stats
 from app.schemas import GatewayStats
 
 router = APIRouter(prefix="/gateway", tags=["gateway"])
@@ -28,10 +28,14 @@ async def gateway_stats(
     day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     async with engine.connect() as conn:  # read-only: no transaction to commit
         totals, models = await fetch_stats(conn, since, day_start)
+        today = await fetch_quota_today(conn, day_start)
+    settings = get_settings()
     return GatewayStats(
         window_hours=hours,
-        daily_request_limit=get_settings().llm_daily_request_limit,
+        daily_request_limit=settings.llm_daily_request_limit,
+        groq_daily_token_limit=settings.groq_daily_token_limit,
         since=since,
         totals=totals,
         models=models,
+        today=today,
     )

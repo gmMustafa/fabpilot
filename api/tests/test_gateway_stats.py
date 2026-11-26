@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from app.db.deps import get_engine
 from app.db.models import LlmCall, LlmCallStatus
-from app.gateway.stats import fetch_stats
+from app.gateway.stats import fetch_quota_today, fetch_stats
 from app.main import app
 
 pytestmark = pytest.mark.integration
@@ -143,6 +143,31 @@ async def test_endpoint_returns_the_window(client: AsyncClient) -> None:
 
     wide = (await client.get("/gateway/stats", params={"hours": 48})).json()
     assert wide["totals"]["calls"] == 6  # now C5 (30 h ago) is inside
+
+
+async def test_quota_today_is_per_provider_and_model(engine: AsyncEngine) -> None:
+    """B4: OpenRouter's free tier counts requests per account, Groq's counts tokens per model,
+    so today's use comes per provider + model. Cache hits cost nothing; C5 is before today."""
+    groq = {
+        **_row(uuid.uuid4(), 1, "openai/gpt-oss-120b", 800, tokens=(4000, 1700)),
+        "provider": "groq",
+    }
+    async with engine.begin() as conn:
+        await conn.execute(insert(LlmCall), [groq])
+    async with engine.connect() as conn:
+        today = await fetch_quota_today(conn, day_start=NOW - timedelta(hours=2))
+    assert [(q.provider, q.model, q.requests, q.tokens) for q in today] == [
+        ("groq", "openai/gpt-oss-120b", 1, 5700),
+        ("openrouter", B, 2, 220),  # per provider, the most tokens first
+        ("openrouter", A, 5, 165),  # C1 x2, C2, C3, C6; not the cache hit C4, not C5
+    ]
+
+
+async def test_endpoint_carries_both_limits_and_todays_use(client: AsyncClient) -> None:
+    body = (await client.get("/gateway/stats", params={"hours": 1})).json()
+    assert body["groq_daily_token_limit"] > 0
+    # a 1 h window changes the per-model table, never the quota: that is the whole UTC day
+    assert sum(q["requests"] for q in body["today"]) == body["totals"]["requests_today_utc"]
 
 
 @pytest.mark.parametrize("hours", [0, 721, "abc"])

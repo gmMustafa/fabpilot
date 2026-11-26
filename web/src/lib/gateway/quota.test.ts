@@ -1,6 +1,37 @@
 import { describe, expect, it } from "vitest";
 
-import { quotaLevel } from "./quota";
+import { compactNumber, quotaLevel, TOKENS } from "./quota";
+
+describe("quotaLevel in tokens (B4: Groq counts tokens per model)", () => {
+  it("writes token amounts compactly", () => {
+    expect(quotaLevel(12_260, 200_000, TOKENS)).toEqual({
+      percent: 6,
+      level: "ok",
+      message: "187.7K of 200K tokens left today.",
+    });
+  });
+
+  it("warns and exhausts like the request quota", () => {
+    expect(quotaLevel(160_000, 200_000, TOKENS).level).toBe("warn");
+    expect(quotaLevel(200_000, 200_000, TOKENS).message).toBe(
+      "Daily limit reached: 200K of 200K tokens. New investigations will fail until the quota resets.",
+    );
+  });
+
+  it("names the token setting when no limit is configured", () => {
+    expect(quotaLevel(5, 0, TOKENS).message).toBe(
+      "No daily limit configured (GROQ_DAILY_TOKEN_LIMIT).",
+    );
+  });
+
+  it("compactNumber", () => {
+    expect([compactNumber(999), compactNumber(1000), compactNumber(152_300)]).toEqual([
+      "999",
+      "1K",
+      "152.3K",
+    ]);
+  });
+});
 
 describe("quotaLevel (your TODO)", () => {
   it("plenty left", () => {

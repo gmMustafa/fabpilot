@@ -121,12 +121,26 @@ class ModelStats(_Out):
     tokens_out: int
 
 
+class QuotaUse(_Out):
+    """One provider + model's use since 00:00 UTC (B4). The providers limit DIFFERENT things:
+    OpenRouter's free tier counts requests per account, Groq's counts tokens per model."""
+
+    provider: str  # "openrouter" | "groq"
+    model: str
+    requests: int  # provider requests (cache hits excluded: they cost nothing)
+    tokens: int  # tokens_in + tokens_out
+
+
 class GatewayStats(_Out):
     window_hours: int
-    daily_request_limit: int  # LLM_DAILY_REQUEST_LIMIT: what requests_today_utc is against
+    # OpenRouter's free tier: requests per day for the whole account (LLM_DAILY_REQUEST_LIMIT)
+    daily_request_limit: int
+    # Groq's free tier: tokens per day PER MODEL (GROQ_DAILY_TOKEN_LIMIT, B4)
+    groq_daily_token_limit: int
     since: datetime
     totals: StatsTotals
     models: list[ModelStats]
+    today: list[QuotaUse]  # since 00:00 UTC, whatever the window: what the quota bars use
 
 
 # ------------------------------------------------------------------ incidents and agent runs (6.1)

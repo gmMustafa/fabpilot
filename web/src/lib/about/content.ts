@@ -80,7 +80,11 @@ export const SIDE_SYSTEMS = [
     path: "evals/",
     text: "Scenarios with known root causes, to measure the agent.",
   },
-  { name: "OpenRouter", path: "external", text: "Free LLMs, behind a gateway with fallbacks." },
+  {
+    name: "Groq · OpenRouter",
+    path: "external",
+    text: "Free LLMs, Groq first: one gateway with routes, retries, a prompt cache and cost logging.",
+  },
 ];
 
 export const STACK: { area: string; items: string[] }[] = [
@@ -104,7 +108,7 @@ export const STACK: { area: string; items: string[] }[] = [
     area: "AI",
     items: [
       "LangGraph",
-      "OpenRouter free models",
+      "Groq + OpenRouter (free models)",
       "fastembed (bge-small-en-v1.5, local)",
       "MCP Python SDK (FastMCP)",
     ],

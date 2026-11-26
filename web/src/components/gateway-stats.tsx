@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/table";
 import { api } from "@/lib/api/client";
 import { describeError } from "@/lib/api/errors";
-import { quotaLevel, type QuotaLevel } from "@/lib/gateway/quota";
+import { quotaLevel, REQUESTS, TOKENS, type QuotaLevel, type QuotaUnit } from "@/lib/gateway/quota";
 import { cn } from "@/lib/utils";
 
 const WINDOWS = [
@@ -65,6 +65,47 @@ function Stat({ label, value, hint }: { label: string; value: string; hint?: str
   );
 }
 
+/** One quota: a bar plus "used of limit" in plain words (B4: one per provider, Groq per model). */
+function QuotaBar({
+  label,
+  used,
+  limit,
+  unit,
+}: {
+  label: string;
+  used: number;
+  limit: number;
+  unit: QuotaUnit;
+}) {
+  const quota = quotaLevel(used, limit, unit);
+  return (
+    <div className="space-y-1">
+      <div className="flex items-baseline justify-between gap-2 text-xs">
+        <span className="font-medium">{label}</span>
+        <span className="text-muted-foreground tabular-nums">
+          {unit.format(used)} of {unit.format(limit)} {unit.noun} ({quota.percent} %)
+        </span>
+      </div>
+      <div
+        className="h-2.5 w-full overflow-hidden rounded-full bg-muted"
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.min(quota.percent, 100)}
+        aria-label={`${label}: share of today's limit used`}
+      >
+        <div
+          className={cn("h-full transition-[width] duration-700", BAR[quota.level])}
+          style={{ width: `${Math.min(quota.percent, 100)}%` }}
+        />
+      </div>
+      <p className={cn("text-xs", quota.level === "exhausted" && "font-medium text-destructive")}>
+        {quota.message}
+      </p>
+    </div>
+  );
+}
+
 export function GatewayStats() {
   const [hours, setHours] = useState<number>(24);
   const stats = useQuery({
@@ -76,8 +117,14 @@ export function GatewayStats() {
   if (stats.isPending) return <p className="text-sm text-muted-foreground">Loading…</p>;
   if (stats.isError) return <p className="text-sm text-destructive">{stats.error.message}</p>;
 
-  const { totals, models, daily_request_limit: limit } = stats.data;
-  const quota = quotaLevel(totals.requests_today_utc, limit);
+  const { totals, models, today, daily_request_limit, groq_daily_token_limit } = stats.data;
+  // The free tiers count different things (B4): OpenRouter requests per ACCOUNT, Groq tokens
+  // per MODEL. One number against one limit (as before) compared Groq's requests with
+  // OpenRouter's limit.
+  const openrouterRequests = today
+    .filter((q) => q.provider === "openrouter")
+    .reduce((n, q) => n + q.requests, 0);
+  const groqModels = today.filter((q) => q.provider === "groq");
 
   return (
     <div className="space-y-6">
@@ -87,27 +134,32 @@ export function GatewayStats() {
             <Gauge className="size-4" aria-hidden /> Today&apos;s free quota (since 00:00 UTC)
           </CardTitle>
         </CardHeader>
-        <CardContent className="space-y-2 px-4 text-sm">
-          <div
-            className="h-3 w-full overflow-hidden rounded-full bg-muted"
-            role="progressbar"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={Math.min(quota.percent, 100)}
-            aria-label="share of today's request limit used"
-          >
-            <div
-              className={cn("h-full transition-[width] duration-700", BAR[quota.level])}
-              style={{ width: `${Math.min(quota.percent, 100)}%` }}
+        <CardContent className="space-y-4 px-4 text-sm">
+          {groqModels.map((q) => (
+            <QuotaBar
+              key={q.model}
+              label={`Groq · ${q.model}`}
+              used={q.tokens}
+              limit={groq_daily_token_limit}
+              unit={TOKENS}
             />
-          </div>
-          <p className={cn(quota.level === "exhausted" && "font-medium text-destructive")}>
-            {totals.requests_today_utc} of {limit} requests used ({quota.percent} %).{" "}
-            {quota.message}
-          </p>
+          ))}
+          {groqModels.length === 0 && (
+            <p className="text-xs text-muted-foreground">
+              Groq: no requests today (the limit is per model:{" "}
+              {TOKENS.format(groq_daily_token_limit)} tokens each).
+            </p>
+          )}
+          <QuotaBar
+            label="OpenRouter · whole account"
+            used={openrouterRequests}
+            limit={daily_request_limit}
+            unit={REQUESTS}
+          />
           <p className="text-xs text-muted-foreground">
-            An estimate: only FabPilot&apos;s own requests are counted, and the provider&apos;s
-            reset time is not verified.
+            An estimate: only FabPilot&apos;s own requests are counted, and the providers&apos;
+            reset times are not verified. {totals.requests_today_utc} provider requests in total
+            today.
           </p>
         </CardContent>
       </Card>

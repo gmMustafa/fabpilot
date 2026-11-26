@@ -15,7 +15,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from app.db.models import LlmCallStatus
-from app.schemas import ModelStats, StatsTotals
+from app.schemas import ModelStats, QuotaUse, StatsTotals
 
 _TOTALS_SQL = text("""
     WITH calls AS (
@@ -43,6 +43,24 @@ _ERROR_TYPES_SQL = text("""
     WHERE time >= :since AND NOT cached AND status = :error
     GROUP BY model, error_type
 """)
+
+
+_QUOTA_TODAY_SQL = text("""
+    SELECT provider, model,
+           count(*) AS requests,
+           coalesce(sum(tokens_in + tokens_out), 0) AS tokens
+    FROM llm_calls
+    WHERE time >= :day_start AND NOT cached
+    GROUP BY provider, model
+    ORDER BY provider, tokens DESC, model
+""")
+
+
+async def fetch_quota_today(conn: AsyncConnection, day_start: datetime) -> list[QuotaUse]:
+    """Per provider + model since `day_start` (B4): what each free tier counts. Separate from the
+    per-model table, which covers the chosen WINDOW; a quota always means the UTC day."""
+    result = await conn.execute(_QUOTA_TODAY_SQL, {"day_start": day_start})
+    return [QuotaUse(**r) for r in result.mappings()]
 
 
 async def fetch_totals(conn: AsyncConnection, since: datetime, day_start: datetime) -> StatsTotals:
