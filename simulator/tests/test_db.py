@@ -77,6 +77,63 @@ def test_backfill_is_idempotent(conn: psycopg.Connection, plant: PlantConfig) ->
     assert _scalar(conn, "SELECT sum(value) FROM sensor_readings") == pytest.approx(checksum)
 
 
+def _old_alarm(conn: psycopg.Connection, machine: str, code: str, cleared: bool) -> None:
+    """An alarm raised two days before NOW, i.e. before a 1-day backfill's window."""
+    conn.execute(
+        "INSERT INTO alarms (machine_id, time, cleared_at, code, severity, message)"
+        " SELECT id, %s, %s, %s, 'critical', 'old' FROM machines WHERE code = %s",
+        (
+            NOW - timedelta(days=2),
+            NOW - timedelta(days=2) + timedelta(hours=1) if cleared else None,
+            code,
+            machine,
+        ),
+    )
+    conn.commit()
+
+
+def _cleared_at(conn: psycopg.Connection, code: str) -> object:
+    row = conn.execute("SELECT cleared_at FROM alarms WHERE code = %s", (code,)).fetchone()
+    assert row is not None
+    return row[0]
+
+
+def test_a_rewrite_closes_alarms_left_open_before_its_window(
+    conn: psycopg.Connection, plant: PlantConfig
+) -> None:
+    """B2: from the window's start the new history is the truth. Before, an alarm raised before
+    the window stayed open forever (M-08: TEMP-CRIT "active" for days over a healthy history)."""
+    _old_alarm(conn, "M-01", "OLD-OPEN", cleared=False)
+    _old_alarm(conn, "M-01", "OLD-CLEARED", cleared=True)
+    cleared_before = _cleared_at(conn, "OLD-CLEARED")
+
+    backfill(conn, plant, days=1, seed=SEED, now=NOW)
+
+    window_start = NOW.replace(hour=0) - timedelta(days=1)  # backfill: midnight `days` ago
+    assert _cleared_at(conn, "OLD-OPEN") == window_start  # closed where the new history begins
+    assert _cleared_at(conn, "OLD-CLEARED") == cleared_before  # finished history: untouched
+
+
+def test_rewriting_one_machine_leaves_other_machines_alarms_alone(
+    conn: psycopg.Connection, plant: PlantConfig
+) -> None:
+    """inject rewrites ONE machine: another machine's open alarm is not its business."""
+    backfill(conn, plant, days=1, seed=SEED, now=NOW)
+    _old_alarm(conn, "M-02", "OTHER-OPEN", cleared=False)
+
+    inject(
+        conn,
+        plant,
+        FaultType.BEARING_WEAR,
+        "M-01",
+        seed=SEED,
+        duration=timedelta(hours=30),
+        now=NOW,
+    )
+
+    assert _cleared_at(conn, "OTHER-OPEN") is None
+
+
 def test_readings_land_on_the_right_sensors_in_utc(
     conn: psycopg.Connection, plant: PlantConfig
 ) -> None:

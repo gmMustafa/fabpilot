@@ -130,6 +130,12 @@ def write_alarms(
 ) -> int:
     """Replace these machines' alarms raised in [start, end) with `events` (idempotent re-runs).
 
+    From `start` on the new history is the truth, so an alarm raised BEFORE the window and still
+    open is closed at `start` (B2). Before, neither the DELETE (window only) nor the new events
+    touched it, and it stayed open forever (M-08: two TEMP-CRIT "active" for days over a healthy
+    history). If the condition really persists at `start`, the new events open a fresh alarm
+    there: split at the boundary, but no alarm stays open that the data doesn't support.
+
     Alarms are low volume (D4 in 1.1): plain executemany is fine, no COPY needed.
     """
     machine_ids: dict[str, int] = dict(conn.execute("SELECT code, id FROM machines").fetchall())
@@ -146,10 +152,18 @@ def write_alarms(
         )
         for e in events
     ]
+    ids = [machine_ids[c] for c in machine_codes]
+    # One transaction for close + delete + insert: a reader never sees the old open alarm next
+    # to the new history, nor a machine with its alarms half rewritten; a failure undoes all.
     with conn.transaction(), conn.cursor() as cur:
         cur.execute(
+            "UPDATE alarms SET cleared_at = %s"
+            " WHERE machine_id = ANY(%s) AND time < %s AND cleared_at IS NULL",
+            (start, ids, start),
+        )
+        cur.execute(
             "DELETE FROM alarms WHERE machine_id = ANY(%s) AND time >= %s AND time < %s",
-            ([machine_ids[c] for c in machine_codes], start, end),
+            (ids, start, end),
         )
         cur.executemany(
             "INSERT INTO alarms (machine_id, sensor_id, time, cleared_at, code, severity, message)"
