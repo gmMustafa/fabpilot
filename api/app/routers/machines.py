@@ -96,11 +96,12 @@ async def get_alarms(
     limit: Annotated[int, Query(description="At most this many, newest first")] = 100,
     min_severity: Annotated[str | None, Query(description="info, warning or critical")] = None,
 ) -> AlarmLog:
-    """One machine's alarms in [start, end), newest first (7.3: the machine page's timeline).
-    `truncated` + `total_count` say when the list is cut: then the EARLIEST alarms (when the
-    problem started) are the ones missing."""
+    """One machine's alarms ACTIVE at any point in [start, end), newest first (7.3: the machine
+    page's timeline; B1: an alarm raised before the window and still open is listed too, as the
+    page's banner counts it). `truncated` + `total_count` say when the list is cut: then the
+    EARLIEST alarms (when the problem started) are the ones missing."""
     try:
-        query = plant_data.validate_alarm_query(start, end, limit, min_severity)
+        query = plant_data.validate_alarm_query(start, end, limit, min_severity, overlap=True)
         async with engine.connect() as conn:
             return await plant_data.get_alarm_log(conn, code, query)
     except (NotFoundError, InvalidQueryError) as e:

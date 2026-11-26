@@ -14,7 +14,7 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from app.db.models import Alarm, AlarmSeverity, Machine, Sensor
@@ -391,6 +391,12 @@ class AlarmQuery:
     end: datetime
     limit: int
     min_severity: AlarmSeverity | None
+    # False: alarms RAISED in [start, end) (the agent's MCP tool, unchanged). True: alarms ACTIVE
+    # at any point in the window, so one raised before the window and still open is listed too
+    # (the dashboard's timeline: its banner counts that alarm as active, so the list must show
+    # it). Dashboard only for now: for the agent it would change its evidence, which needs an
+    # eval run first (and api/app/plant_data.py isn't covered by agent_hash yet).
+    overlap: bool = False
 
 
 _SEVERITY_ORDER = [AlarmSeverity.INFO, AlarmSeverity.WARNING, AlarmSeverity.CRITICAL]
@@ -401,6 +407,8 @@ def validate_alarm_query(
     end: datetime | None,
     limit: int,
     min_severity: str | None,
+    *,
+    overlap: bool = False,
 ) -> AlarmQuery:
     """Check and normalise an alarm-log request. Raises InvalidQueryError with a FIXING hint.
 
@@ -444,16 +452,29 @@ def validate_alarm_query(
         end=end,
         limit=limit,
         min_severity=severity,
+        overlap=overlap,
     )
 
 
 async def get_alarm_log(conn: AsyncConnection, code: str | None, query: AlarmQuery) -> AlarmLog:
-    """Alarms raised in [start, end), newest first, at least `min_severity`, at most `limit`,
-    plus how many matched in TOTAL: a list cut at `limit` must say so (F12: a truncated list,
-    newest first, silently loses the EARLIEST alarms, i.e. when the problem started).
+    """Alarms raised in [start, end) (or, with query.overlap, active at any point in it), newest
+    first, at least `min_severity`, at most `limit`, plus how many matched in TOTAL: a list cut at
+    `limit` must say so (F12: a truncated list, newest first, silently loses the EARLIEST alarms,
+    i.e. when the problem started).
 
     code=None: all machines (plant-wide view: "which lines alarmed around 03:10?").
     """
+    if query.overlap:
+        # Interval overlap: the alarm lasts [time, cleared_at), NULL = still running (an open
+        # end). It overlaps [start, end) when it began before the window's END and did not end
+        # before the window's START. A cleared_at exactly at start ended as the window began:
+        # half-open intervals, so it doesn't count.
+        window = (
+            Alarm.time < query.end,
+            or_(Alarm.cleared_at.is_(None), Alarm.cleared_at > query.start),
+        )
+    else:
+        window = Alarm.time >= query.start, Alarm.time < query.end
     columns = (
         Alarm.time,
         Alarm.cleared_at,
@@ -467,7 +488,7 @@ async def get_alarm_log(conn: AsyncConnection, code: str | None, query: AlarmQue
         select(*columns)
         .join(Machine, Machine.id == Alarm.machine_id)
         .outerjoin(Sensor, Sensor.id == Alarm.sensor_id)  # machine-level alarms have no sensor
-        .where(Alarm.time >= query.start, Alarm.time < query.end)
+        .where(*window)
     )
     if code is not None:
         base = base.where(Machine.id == (await _machine(conn, code)).id)

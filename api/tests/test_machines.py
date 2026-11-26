@@ -210,6 +210,60 @@ async def test_alarms_newest_first_with_sensor_and_cleared(
     assert (body["total_count"], body["truncated"]) == (3, False)
 
 
+async def _add_alarm(engine: AsyncEngine, code: str, time: str, cleared_at: str | None) -> None:
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                "INSERT INTO alarms (machine_id, sensor_id, time, code, severity, message,"
+                " cleared_at) SELECT m.id, s.id, CAST(:t AS timestamptz), :code, 'critical',"
+                " 'x', CAST(:c AS timestamptz) FROM machines m JOIN sensors s"
+                " ON s.machine_id = m.id WHERE m.code = 'M-01' AND s.name = 'spindle_bearing_temp'"
+            ),
+            {"t": time, "c": cleared_at, "code": code},
+        )
+
+
+# B1: the window 2026-11-16 08:00 .. 10:00. Four alarms around it, one case each.
+WINDOW = {"start": "2026-11-16T08:00:00Z", "end": "2026-11-16T10:00:00Z"}
+AROUND_THE_WINDOW = [
+    ("BEFORE-OPEN", "2026-11-15T20:00:00Z", None),  # raised before, still open (M-08's case)
+    ("BEFORE-CLEARED-IN", "2026-11-16T07:00:00Z", "2026-11-16T08:30:00Z"),  # ends inside
+    ("BEFORE-CLEARED-BEFORE", "2026-11-16T06:00:00Z", "2026-11-16T07:30:00Z"),  # over before it
+    ("INSIDE", "2026-11-16T09:00:00Z", None),  # raised inside (listed before B1 too)
+]
+
+
+async def test_the_timeline_lists_alarms_active_during_the_window(
+    engine: AsyncEngine, client: AsyncClient
+) -> None:
+    """The dashboard: every alarm ACTIVE at some point in the window, newest first. Before B1,
+    M-08's page counted an alarm as active in its banner while the timeline below said
+    'Alarms in this window: 0', because the alarm had been raised before the window."""
+    for code, time, cleared in AROUND_THE_WINDOW:
+        await _add_alarm(engine, code, time, cleared)
+    body = (await client.get("/machines/M-01/alarms", params=WINDOW)).json()
+    assert [a["code"] for a in body["alarms"]] == ["INSIDE", "BEFORE-CLEARED-IN", "BEFORE-OPEN"]
+    assert body["total_count"] == 3
+
+
+async def test_the_agents_alarm_log_still_lists_only_alarms_raised_in_the_window(
+    engine: AsyncEngine,
+) -> None:
+    """The MCP tool (sensor-mcp's get_alarm_log) builds its query WITHOUT overlap: the agent's
+    evidence is unchanged by B1 (changing it would need an eval run first)."""
+    from app import plant_data
+
+    for code, time, cleared in AROUND_THE_WINDOW:
+        await _add_alarm(engine, code, time, cleared)
+    query = plant_data.validate_alarm_query(
+        datetime(2026, 11, 16, 8, tzinfo=UTC), datetime(2026, 11, 16, 10, tzinfo=UTC), 100, None
+    )
+    assert query.overlap is False
+    async with engine.connect() as conn:
+        log = await plant_data.get_alarm_log(conn, "M-01", query)
+    assert [a.code for a in log.alarms] == ["INSIDE"]
+
+
 async def test_a_cut_alarm_list_says_so(engine: AsyncEngine, client: AsyncClient) -> None:
     """Newest first + a limit silently drops the EARLIEST alarms: when the problem started."""
     await _add_alarms(engine, 5)

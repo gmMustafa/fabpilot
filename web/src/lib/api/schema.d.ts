@@ -155,9 +155,10 @@ export interface paths {
         };
         /**
          * Get Alarms
-         * @description One machine's alarms in [start, end), newest first (7.3: the machine page's timeline).
-         *     `truncated` + `total_count` say when the list is cut: then the EARLIEST alarms (when the
-         *     problem started) are the ones missing.
+         * @description One machine's alarms ACTIVE at any point in [start, end), newest first (7.3: the machine
+         *     page's timeline; B1: an alarm raised before the window and still open is listed too, as the
+         *     page's banner counts it). `truncated` + `total_count` say when the list is cut: then the
+         *     EARLIEST alarms (when the problem started) are the ones missing.
          */
         get: operations["getAlarms"];
         put?: never;
